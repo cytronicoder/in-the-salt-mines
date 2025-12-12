@@ -201,7 +201,6 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             markersize=10,
             alpha=0.6,
             linestyle="",
-            label=f"{conc} M NaCl (Individual Runs)" if i == 0 else "",
         )
 
     ax1.set_xlabel(
@@ -216,7 +215,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
     )
     ax1.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
     ax1.tick_params(labelsize=14)
-    ax1.legend(fontsize=16, loc="center left", bbox_to_anchor=(1.0, 0.975), frameon=True, shadow=True)
+    ax1.legend(fontsize=16, loc="center left", bbox_to_anchor=(1.1, 0.975), frameon=True, shadow=True)
     ax1.spines["top"].set_visible(False)
     ax1.spines["right"].set_visible(False)
 
