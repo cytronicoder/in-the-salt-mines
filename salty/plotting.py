@@ -147,7 +147,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
         str: Path to saved figure.
     """
     setup_plot_style()
-    colors = ["black", "gray"]
+    colors = ["red", "orange", "green", "blue", "purple", "brown", "pink", "gray"]
 
     os.makedirs(output_dir, exist_ok=True)
 
