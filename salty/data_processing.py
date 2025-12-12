@@ -4,6 +4,7 @@ Handles CSV parsing, run extraction, and derivative calculations.
 
 import numpy as np
 import pandas as pd
+from scipy.signal import savgol_filter
 
 
 def extract_runs(df):
@@ -36,23 +37,43 @@ def extract_runs(df):
     return runs
 
 
-def calculate_derivatives(df, time_col="Time (min)", ph_col="pH"):
+def calculate_derivatives(
+    df, time_col="Time (min)", ph_col="pH", window_length=15, polyorder=3
+):
     """
-    Calculates 1st and 2nd derivatives of pH w.r.t Time.
+    Calculates 1st and 2nd derivatives of pH w.r.t Time using Savitzky-Golay smoothing.
 
     Args:
         df (pd.DataFrame): DataFrame with time and pH data.
         time_col (str, optional): Name of the time column (default: 'Time (min)').
         ph_col (str, optional): Name of the pH column (default: 'pH').
+        window_length (int, optional): Window length for Savitzky-Golay filter (default: 15).
+        polyorder (int, optional): Polynomial order for Savitzky-Golay filter (default: 3).
 
     Returns:
-        pd.DataFrame: Input DataFrame with added 'dpH/dt' and 'd2pH/dt2' columns.
+        pd.DataFrame: Input DataFrame with added 'pH_smooth', 'dpH/dt', and 'd2pH/dt2' columns.
     """
     t = df[time_col].values
     ph = df[ph_col].values
-    dpH = np.gradient(ph, t)
+
+    if window_length >= len(ph):
+        window_length = len(ph) - 1 if len(ph) % 2 == 0 else len(ph)
+    if window_length % 2 == 0:
+        window_length -= 1
+    if window_length < polyorder + 2:
+        window_length = polyorder + 2
+        if window_length % 2 == 0:
+            window_length += 1
+
+    if len(ph) > window_length:
+        ph_smooth = savgol_filter(ph, window_length, polyorder)
+    else:
+        ph_smooth = ph
+
+    dpH = np.gradient(ph_smooth, t)
     d2pH = np.gradient(dpH, t)
 
+    df["pH_smooth"] = ph_smooth
     df["dpH/dt"] = dpH
     df["d2pH/dt2"] = d2pH
 

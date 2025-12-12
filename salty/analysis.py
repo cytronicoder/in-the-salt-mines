@@ -21,7 +21,7 @@ def find_equivalence_point(df, time_col="Time (min)"):
     """
     max_idx = df["dpH/dt"].idxmax()
     eq_time = df.loc[max_idx, time_col]
-    eq_pH = df.loc[max_idx, "pH"]
+    eq_pH = df.loc[max_idx, "pH_smooth"]
 
     return eq_time, eq_pH
 
@@ -41,7 +41,7 @@ def analyze_titration(df, run_name):
     eq_time, eq_pH = find_equivalence_point(df)
 
     half_eq_time = eq_time / 2
-    half_eq_pH = np.interp(half_eq_time, df["Time (min)"], df["pH"])
+    half_eq_pH = np.interp(half_eq_time, df["Time (min)"], df["pH_smooth"])
 
     return {
         "run_name": run_name,

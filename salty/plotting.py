@@ -46,15 +46,26 @@ def plot_titration_curves(results, output_dir="output"):
         color = colors[int(res["nacl_conc"])]
 
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
+
         ax1.plot(
             df["Time (min)"],
             df["pH"],
-            ".-",
+            ".",
             color=color,
-            label="pH",
-            linewidth=2,
-            markersize=6,
+            alpha=0.3,
+            label="Raw pH",
+            markersize=4,
         )
+
+        ax1.plot(
+            df["Time (min)"],
+            df["pH_smooth"],
+            "-",
+            color=color,
+            label="Smoothed pH",
+            linewidth=2,
+        )
+
         ax1.axvline(
             res["eq_time"],
             color=color,
@@ -179,7 +190,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             markersize=12,
             capsize=8,
             capthick=3,
-            label=f"{conc} M",
+            label=f"{conc} M (n={int(row['n'])})",
             elinewidth=2.5,
         )
 
@@ -229,7 +240,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             label,
             (row["NaCl Concentration (M)"], row["Mean pKa"]),
             textcoords="offset points",
-            xytext=(0, -50),
+            xytext=(0, -45),
             ha="center",
             fontsize=14,
             fontweight="bold",
