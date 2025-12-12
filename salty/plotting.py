@@ -45,10 +45,7 @@ def plot_titration_curves(results, output_dir="output"):
         run_name = res["run_name"]
         color = colors[int(res["nacl_conc"])]
 
-        # Create individual figure with three subplots (titration curve, first derivative, second derivative)
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
-
-        # Left panel: Titration curve
         ax1.plot(
             df["Time (min)"],
             df["pH"],
@@ -88,7 +85,6 @@ def plot_titration_curves(results, output_dir="output"):
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
 
-        # Middle panel: First derivative
         ax2.plot(
             df["Time (min)"],
             df["dpH/dt"],
@@ -114,7 +110,6 @@ def plot_titration_curves(results, output_dir="output"):
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
 
-        # Right panel: Second derivative
         ax3.plot(
             df["Time (min)"],
             df["d2pH/dt2"],
@@ -140,9 +135,7 @@ def plot_titration_curves(results, output_dir="output"):
         ax3.spines["top"].set_visible(False)
         ax3.spines["right"].set_visible(False)
 
-        plt.tight_layout(w_pad=3.0)  # Add horizontal spacing between subplots
-
-        # Save individual figure with sanitized filename
+        plt.tight_layout(w_pad=3.0)
         sanitized_name = run_name.replace(" ", "_").replace("/", "_")
         output_path = os.path.join(output_dir, f"titration_curve_{sanitized_name}.png")
         fig.savefig(output_path, dpi=300, bbox_inches="tight")
@@ -176,7 +169,6 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
         conc = row["NaCl Concentration (M)"]
         color = colors[i]
 
-        # Plot mean with error bars
         ax1.errorbar(
             conc,
             row["Mean pKa"],
@@ -191,7 +183,6 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             elinewidth=2.5,
         )
 
-        # Plot individual runs
         subset = results_df[results_df["NaCl Concentration (M)"] == conc]
         ax1.plot(
             [conc] * len(subset),
@@ -215,11 +206,16 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
     )
     ax1.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
     ax1.tick_params(labelsize=14)
-    ax1.legend(fontsize=16, loc="center left", bbox_to_anchor=(1.1, 0.975), frameon=True, shadow=True)
+    ax1.legend(
+        fontsize=16,
+        loc="center left",
+        bbox_to_anchor=(1.1, 0.975),
+        frameon=True,
+        shadow=True,
+    )
     ax1.spines["top"].set_visible(False)
     ax1.spines["right"].set_visible(False)
 
-    # Add value annotations
     for _, row in stats_df.iterrows():
         if pd.notna(row["SD"]):
             label = f"{row['Mean pKa']:.3f} ± {row['SD']:.3f}"

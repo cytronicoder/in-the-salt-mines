@@ -40,12 +40,8 @@ def analyze_titration(df, run_name):
     df = calculate_derivatives(df)
     eq_time, eq_pH = find_equivalence_point(df)
 
-    initial_pH = df["pH"].iloc[0]
-    target_pH = (initial_pH + eq_pH) / 2
-    ph_diff = np.abs(df["pH"] - target_pH)
-    half_eq_idx = ph_diff.idxmin()
-    half_eq_time = df.loc[half_eq_idx, "Time (min)"]
-    half_eq_pH = df.loc[half_eq_idx, "pH"]
+    half_eq_time = eq_time / 2
+    half_eq_pH = np.interp(half_eq_time, df["Time (min)"], df["pH"])
 
     return {
         "run_name": run_name,
