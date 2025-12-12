@@ -159,7 +159,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
         str: Path to saved figure.
     """
     setup_plot_style()
-    colors = ["red", "orange", "green", "blue", "purple", "brown", "pink", "gray"]
+    colors = ["red", "orange", "green", "blue", "purple", "brown", "pink"]
 
     os.makedirs(output_dir, exist_ok=True)
 
@@ -179,7 +179,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             markersize=12,
             capsize=8,
             capthick=3,
-            label=f"{conc} M NaCl (Mean ± SD)",
+            label=f"{conc} M",
             elinewidth=2.5,
         )
 
@@ -194,6 +194,8 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             linestyle="",
         )
 
+    ax1.scatter([], [], marker="s", color="grey", alpha=0.6, label="Individual Runs")
+
     ax1.set_xlabel(
         r"NaCl Concentration (mol dm$^{-3}$)", fontsize=18, fontweight="bold"
     )
@@ -207,9 +209,11 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
     ax1.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
     ax1.tick_params(labelsize=14)
     ax1.legend(
+        title="NaCl Concentration",
         fontsize=16,
+        title_fontsize=18,
         loc="center left",
-        bbox_to_anchor=(1.1, 0.975),
+        bbox_to_anchor=(1.0, 0.925),
         frameon=True,
         shadow=True,
     )
@@ -225,11 +229,11 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
             label,
             (row["NaCl Concentration (M)"], row["Mean pKa"]),
             textcoords="offset points",
-            xytext=(0, 20),
+            xytext=(0, -50),
             ha="center",
-            fontsize=12,
+            fontsize=14,
             fontweight="bold",
-            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgray", alpha=0.5),
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="white"),
         )
 
     plt.tight_layout()
