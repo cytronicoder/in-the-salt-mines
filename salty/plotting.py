@@ -1,12 +1,5 @@
 """
 Plotting module for titration analysis.
-Creates professional, publication-ready figures.
-
-Functions:
-    setup_plot_style(): Configures matplotlib style for professional plots.
-    plot_titration_curves(results, output_dir="output"): Plots titration curves and first derivatives for all runs.
-    plot_statistical_summary(stats_df, results_df, output_dir="output"): Plots statistical summary with error bars.
-    save_data_to_csv(results_df, stats_df, output_dir="output"): Saves processed data to CSV files.
 """
 
 import os
@@ -52,8 +45,8 @@ def plot_titration_curves(results, output_dir="output"):
         run_name = res["run_name"]
         color = colors[int(res["nacl_conc"])]
 
-        # Create individual figure with two subplots (titration curve and first derivative)
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+        # Create individual figure with three subplots (titration curve, first derivative, second derivative)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
 
         # Left panel: Titration curve
         ax1.plot(
@@ -86,16 +79,16 @@ def plot_titration_curves(results, output_dir="output"):
             marker="o",
             markersize=10,
         )
-        ax1.set_title(f"Titration Curve: {run_name}", fontsize=18, fontweight="bold")
-        ax1.set_xlabel(r"Time (min)", fontsize=14)
-        ax1.set_ylabel(r"pH", fontsize=14)
-        ax1.tick_params(labelsize=12)
-        ax1.legend(fontsize=12, loc="best")
+        ax1.set_title(f"Titration Curve: {run_name}", fontsize=24, fontweight="bold")
+        ax1.set_xlabel(r"Time (min)", fontsize=18)
+        ax1.set_ylabel(r"pH", fontsize=18)
+        ax1.tick_params(labelsize=16)
+        ax1.legend(fontsize=18, loc="best")
         ax1.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
         ax1.spines["top"].set_visible(False)
         ax1.spines["right"].set_visible(False)
 
-        # Right panel: First derivative
+        # Middle panel: First derivative
         ax2.plot(
             df["Time (min)"],
             df["dpH/dt"],
@@ -112,16 +105,42 @@ def plot_titration_curves(results, output_dir="output"):
             label=f'Equivalence: pH = {res["eq_pH"]:.2f}',
         )
         ax2.axhline(0, color="gray", linestyle="-", linewidth=0.8, alpha=0.5)
-        ax2.set_title(f"First Derivative: {run_name}", fontsize=18, fontweight="bold")
-        ax2.set_xlabel(r"Time (min)", fontsize=14)
-        ax2.set_ylabel(r"$\frac{dpH}{dt}$", fontsize=14)
-        ax2.tick_params(labelsize=12)
-        ax2.legend(fontsize=12, loc="best")
+        ax2.set_title(f"First Derivative: {run_name}", fontsize=24, fontweight="bold")
+        ax2.set_xlabel(r"Time (min)", fontsize=18)
+        ax2.set_ylabel(r"$\frac{dpH}{dt}$", fontsize=18)
+        ax2.tick_params(labelsize=16)
+        ax2.legend(fontsize=18, loc="best")
         ax2.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
 
-        plt.tight_layout()
+        # Right panel: Second derivative
+        ax3.plot(
+            df["Time (min)"],
+            df["d2pH/dt2"],
+            "-",
+            color=color,
+            label=r"$\frac{d^2pH}{dt^2}$",
+            linewidth=2,
+        )
+        ax3.axvline(
+            res["eq_time"],
+            color=color,
+            linestyle="--",
+            linewidth=2.5,
+            label=f'Equivalence: pH = {res["eq_pH"]:.2f}',
+        )
+        ax3.axhline(0, color="gray", linestyle="-", linewidth=0.8, alpha=0.5)
+        ax3.set_title(f"Second Derivative: {run_name}", fontsize=24, fontweight="bold")
+        ax3.set_xlabel(r"Time (min)", fontsize=18)
+        ax3.set_ylabel(r"$\frac{d^2pH}{dt^2}$", fontsize=18)
+        ax3.tick_params(labelsize=16)
+        ax3.legend(fontsize=18, loc="best")
+        ax3.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
+        ax3.spines["top"].set_visible(False)
+        ax3.spines["right"].set_visible(False)
+
+        plt.tight_layout(w_pad=3.0)  # Add horizontal spacing between subplots
 
         # Save individual figure with sanitized filename
         sanitized_name = run_name.replace(" ", "_").replace("/", "_")
@@ -151,7 +170,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
 
     os.makedirs(output_dir, exist_ok=True)
 
-    fig, ax1 = plt.subplots(1, 1, figsize=(10, 8))
+    fig, ax1 = plt.subplots(1, 1, figsize=(12, 8))
 
     for i, row in stats_df.iterrows():
         conc = row["NaCl Concentration (M)"]
@@ -186,9 +205,9 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
         )
 
     ax1.set_xlabel(
-        r"NaCl Concentration (mol dm$^{-3}$)", fontsize=16, fontweight="bold"
+        r"NaCl Concentration (mol dm$^{-3}$)", fontsize=18, fontweight="bold"
     )
-    ax1.set_ylabel(r"Apparent $pK_a$", fontsize=16, fontweight="bold")
+    ax1.set_ylabel(r"Apparent $pK_a$", fontsize=18, fontweight="bold")
     ax1.set_title(
         r"Effect of NaCl on $pK_a$ of Ethanoic Acid",
         fontsize=24,
@@ -197,7 +216,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
     )
     ax1.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
     ax1.tick_params(labelsize=14)
-    ax1.legend(fontsize=14, loc="upper left", frameon=True, shadow=True)
+    ax1.legend(fontsize=16, loc="center left", bbox_to_anchor=(1.0, 0.975), frameon=True, shadow=True)
     ax1.spines["top"].set_visible(False)
     ax1.spines["right"].set_visible(False)
 

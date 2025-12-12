@@ -1,11 +1,5 @@
 """
-Data processing module for titration analysis.
 Handles CSV parsing, run extraction, and derivative calculations.
-
-Functions:
-    extract_runs(df): Extracts individual runs from the wide-format CSV.
-    calculate_derivatives(df, time_col="Time (min)", ph_col="pH"): Calculates 1st and 2nd derivatives of pH w.r.t Time.
-    load_titration_data(filepath): Loads titration data from a CSV file.
 """
 
 import numpy as np

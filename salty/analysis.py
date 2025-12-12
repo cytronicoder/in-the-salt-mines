@@ -1,20 +1,11 @@
 """
-Titration analysis module.
-Contains functions for analyzing titration data and finding equivalence points.
-
-Functions:
-    find_equivalence_point(df, time_col="Time (min)"): Finds the equivalence point time where 1st derivative is max.
-    analyze_titration(df, run_name): Analyzes a single titration run.
-    process_all_files(file_list): Processes multiple titration data files.
-    create_results_dataframe(results): Converts analysis results to a pandas DataFrame.
-    calculate_statistics(results_df): Calculates statistical summaries of the results.
-    print_statistics(stats_df, results_df): Prints statistical summary to console.
+Analyzing titration data and finding equivalence points.
 """
 
 import numpy as np
 import pandas as pd
 
-from .data_processing import calculate_derivatives
+from .data_processing import calculate_derivatives, extract_runs, load_titration_data
 
 
 def find_equivalence_point(df, time_col="Time (min)"):
@@ -49,8 +40,12 @@ def analyze_titration(df, run_name):
     df = calculate_derivatives(df)
     eq_time, eq_pH = find_equivalence_point(df)
 
-    half_eq_time = eq_time / 2
-    half_eq_pH = np.interp(half_eq_time, df["Time (min)"], df["pH"])
+    initial_pH = df["pH"].iloc[0]
+    target_pH = (initial_pH + eq_pH) / 2
+    ph_diff = np.abs(df["pH"] - target_pH)
+    half_eq_idx = ph_diff.idxmin()
+    half_eq_time = df.loc[half_eq_idx, "Time (min)"]
+    half_eq_pH = df.loc[half_eq_idx, "pH"]
 
     return {
         "run_name": run_name,
@@ -72,8 +67,6 @@ def process_all_files(file_list):
     Returns:
         list: List of analysis result dictionaries.
     """
-    from .data_processing import extract_runs, load_titration_data
-
     results = []
 
     for filepath, nacl_conc in file_list:
@@ -135,8 +128,6 @@ def calculate_statistics(results_df):
     Returns:
         pd.DataFrame: Statistical summary with mean, SD, SEM, and count.
     """
-    from scipy import stats as sp_stats
-
     stats_df = (
         results_df.groupby("NaCl Concentration (M)")["Half-Equivalence pH (pKa)"]
         .agg([("Mean pKa", "mean"), ("SD", "std"), ("n", "count")])
