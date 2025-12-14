@@ -16,13 +16,15 @@ def extract_runs(df):
     cumulative volume so downstream calculations (derivatives with respect to
     volume, interpolation at half-equivalence, etc.) behave properly.
 
+    For runs lacking volume data, we fall back to using time as the independent
+    variable for derivative calculations.
+
     Args:
         df: Raw wide-format :class:`pandas.DataFrame` loaded directly from the CSV.
 
     Returns:
-        dict[str, pd.DataFrame]: Mapping of run name to cleaned DataFrame with
-        columns ``Time (min)``, ``pH``, ``Temperature (°C)`` (if present) and
-        ``Volume (cm³)``.
+        dict[str, dict]: Mapping of run name to dict with 'df' (DataFrame) and
+        'x_col' (str, either "Volume (cm³)" or "Time (min)").
     """
 
     runs = {}
@@ -55,20 +57,26 @@ def extract_runs(df):
                 pd.to_numeric(run_df["Volume (cm³)"], errors="coerce").ffill()
             )
 
-        # Coerce numeric for pH and time, and remove rows lacking either
-        # a pH reading or a cumulative volume.
+        # Coerce numeric for pH and time.
         run_df["pH"] = pd.to_numeric(run_df["pH"], errors="coerce")
         run_df["Time (min)"] = pd.to_numeric(run_df["Time (min)"], errors="coerce")
 
-        run_df = run_df.dropna(subset=["pH", "Volume (cm³)"])
+        # Determine the independent variable: prefer volume, fall back to time.
+        if "Volume (cm³)" in run_df.columns and run_df["Volume (cm³)"].notna().any():
+            x_col = "Volume (cm³)"
+            subset_cols = ["pH", "Volume (cm³)"]
+        else:
+            x_col = "Time (min)"
+            subset_cols = ["pH", "Time (min)"]
 
-        # Sort by cumulative volume and drop duplicate volume entries, keeping
-        # the latest pH reading for each distinct volume increment.
-        run_df = run_df.sort_values("Volume (cm³)")
-        run_df = run_df.drop_duplicates(subset="Volume (cm³)", keep="last")
+        run_df = run_df.dropna(subset=subset_cols)
+
+        # Sort by the independent variable and drop duplicates.
+        run_df = run_df.sort_values(x_col)
+        run_df = run_df.drop_duplicates(subset=x_col, keep="last")
 
         if not run_df.empty:
-            runs[prefix] = run_df.reset_index(drop=True)
+            runs[prefix] = {"df": run_df.reset_index(drop=True), "x_col": x_col}
 
     return runs
 

@@ -43,12 +43,14 @@ def plot_titration_curves(results, output_dir="output"):
     for i, res in enumerate(results):
         df = res["data"]
         run_name = res["run_name"]
+        x_col = res.get("x_col", "Volume (cm³)")
+        x_label = r"Volume of NaOH added (cm$^3$)" if x_col == "Volume (cm³)" else r"Time (min)"
         color = colors[i % len(colors)]
 
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
 
         ax1.plot(
-            df["Volume (cm³)"],
+            df[x_col],
             df["pH"],
             ".",
             color=color,
@@ -59,7 +61,7 @@ def plot_titration_curves(results, output_dir="output"):
         )
 
         ax1.plot(
-            df["Volume (cm³)"],
+            df[x_col],
             df["pH_smooth"],
             "-",
             color=color,
@@ -69,28 +71,28 @@ def plot_titration_curves(results, output_dir="output"):
         )
 
         ax1.axvline(
-            res["eq_volume"],
+            res["eq_x"],
             color=color,
             linestyle="--",
             linewidth=2.5,
             label=f'Equivalence: pH = {res["eq_pH"]:.2f}',
         )
         ax1.axvline(
-            res["half_eq_volume"],
+            res["half_eq_x"],
             color=color,
             linestyle=":",
             linewidth=2.5,
             label=f'Half-Equivalence: pH = {res["half_eq_pH"]:.2f}',
         )
         ax1.plot(
-            res["half_eq_volume"],
+            res["half_eq_x"],
             res["half_eq_pH"],
             color=color,
             marker="o",
             markersize=10,
         )
         ax1.set_title(f"Titration Curve: {run_name}", fontsize=24, fontweight="bold")
-        ax1.set_xlabel(r"Volume of NaOH added (cm$^3$)", fontsize=18)
+        ax1.set_xlabel(x_label, fontsize=18)
         ax1.set_ylabel(r"pH", fontsize=18)
         ax1.tick_params(labelsize=16)
         ax1.legend(fontsize=18, loc="best")
@@ -99,16 +101,16 @@ def plot_titration_curves(results, output_dir="output"):
         ax1.spines["right"].set_visible(False)
 
         ax2.plot(
-            df["Volume (cm³)"],
+            df[x_col],
             df["dpH/dx"],
             "-",
             color=color,
-            label=r"$\frac{dpH}{dV}$",
+            label=r"$\frac{dpH}{dV}$" if x_col == "Volume (cm³)" else r"$\frac{dpH}{dt}$",
             linewidth=2,
             clip_on=False,
         )
         ax2.axvline(
-            res["eq_volume"],
+            res["eq_x"],
             color=color,
             linestyle="--",
             linewidth=2.5,
@@ -116,8 +118,8 @@ def plot_titration_curves(results, output_dir="output"):
         )
         ax2.axhline(0, color="gray", linestyle="-", linewidth=0.8, alpha=0.5)
         ax2.set_title(f"First Derivative: {run_name}", fontsize=24, fontweight="bold")
-        ax2.set_xlabel(r"Volume of NaOH added (cm$^3$)", fontsize=18)
-        ax2.set_ylabel(r"$\frac{dpH}{dV}$", fontsize=18)
+        ax2.set_xlabel(x_label, fontsize=18)
+        ax2.set_ylabel(r"$\frac{dpH}{dV}$" if x_col == "Volume (cm³)" else r"$\frac{dpH}{dt}$", fontsize=18)
         ax2.tick_params(labelsize=16)
         ax2.legend(fontsize=18, loc="best")
         ax2.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
@@ -125,17 +127,17 @@ def plot_titration_curves(results, output_dir="output"):
         ax2.spines["right"].set_visible(False)
 
         ax3.plot(
-            df["Volume (cm³)"],
+            df[x_col],
             df["d2pH/dx2"],
             "-",
             color=color,
-            label=r"$\frac{d^2pH}{dV^2}$",
+            label=r"$\frac{d^2pH}{dV^2}$" if x_col == "Volume (cm³)" else r"$\frac{d^2pH}{dt^2}$",
             linewidth=2,
             clip_on=False,
         )
 
-        x_min = df["Volume (cm³)"].min()
-        x_max = df["Volume (cm³)"].max()
+        x_min = df[x_col].min()
+        x_max = df[x_col].max()
         if x_max is None or x_min is None:
             margin = 0.1
         else:
@@ -147,7 +149,7 @@ def plot_titration_curves(results, output_dir="output"):
         for ax in (ax1, ax2, ax3):
             ax.set_xlim(x_min - margin, x_max + margin)
         ax3.axvline(
-            res["eq_volume"],
+            res["eq_x"],
             color=color,
             linestyle="--",
             linewidth=2.5,
@@ -155,8 +157,8 @@ def plot_titration_curves(results, output_dir="output"):
         )
         ax3.axhline(0, color="gray", linestyle="-", linewidth=0.8, alpha=0.5)
         ax3.set_title(f"Second Derivative: {run_name}", fontsize=24, fontweight="bold")
-        ax3.set_xlabel(r"Volume of NaOH added (cm$^3$)", fontsize=18)
-        ax3.set_ylabel(r"$\frac{d^2pH}{dV^2}$", fontsize=18)
+        ax3.set_xlabel(x_label, fontsize=18)
+        ax3.set_ylabel(r"$\frac{d^2pH}{dV^2}$" if x_col == "Volume (cm³)" else r"$\frac{d^2pH}{dt^2}$", fontsize=18)
         ax3.tick_params(labelsize=16)
         ax3.legend(fontsize=18, loc="best")
         ax3.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)

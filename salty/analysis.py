@@ -27,29 +27,31 @@ def find_equivalence_point(df, x_col="Volume (cm³)"):
     return eq_x, eq_pH
 
 
-def analyze_titration(df, run_name):
+def analyze_titration(df, run_name, x_col="Volume (cm³)"):
     """
     Analyzes a single titration run.
 
     Args:
         df (pd.DataFrame): DataFrame with time and pH data.
         run_name (str): Name identifier for this run.
+        x_col (str): Independent variable column.
 
     Returns:
         dict: Analysis results including equivalence point, half-equivalence point, and pKa.
     """
-    df = calculate_derivatives(df)
-    eq_vol, eq_pH = find_equivalence_point(df)
+    df = calculate_derivatives(df, x_col=x_col)
+    eq_x, eq_pH = find_equivalence_point(df, x_col=x_col)
 
-    half_eq_vol = eq_vol / 2
-    half_eq_pH = np.interp(half_eq_vol, df["Volume (cm³)"], df["pH_smooth"])
+    half_eq_x = eq_x / 2
+    half_eq_pH = np.interp(half_eq_x, df[x_col], df["pH_smooth"])
 
     return {
         "run_name": run_name,
-        "eq_volume": eq_vol,
+        "eq_x": eq_x,
         "eq_pH": eq_pH,
-        "half_eq_volume": half_eq_vol,
+        "half_eq_x": half_eq_x,
         "half_eq_pH": half_eq_pH,
+        "x_col": x_col,
         "data": df,
     }
 
@@ -72,13 +74,15 @@ def process_all_files(file_list):
             df_raw = load_titration_data(filepath)
             runs = extract_runs(df_raw)
 
-            for run_name, run_df in runs.items():
-                print(f"  Analyzing {run_name}...")
+            for run_name, run_info in runs.items():
+                run_df = run_info["df"]
+                x_col = run_info["x_col"]
+                print(f"  Analyzing {run_name} (using {x_col})...")
                 if len(run_df) < 10:
                     print(f"    Skipping {run_name} (not enough data points)")
                     continue
 
-                analysis = analyze_titration(run_df, f"{nacl_conc}M - {run_name}")
+                analysis = analyze_titration(run_df, f"{nacl_conc}M - {run_name}", x_col=x_col)
                 analysis["nacl_conc"] = nacl_conc
                 results.append(analysis)
 
@@ -104,10 +108,11 @@ def create_results_dataframe(results):
             {
                 "NaCl Concentration (M)": r["nacl_conc"],
                 "Run": r["run_name"],
-                "Equivalence Volume (cm³)": r["eq_volume"],
+                "Equivalence X": r["eq_x"],
                 "Equivalence pH": r["eq_pH"],
-                "Half-Equivalence Volume (cm³)": r["half_eq_volume"],
+                "Half-Equivalence X": r["half_eq_x"],
                 "Half-Equivalence pH (pKa)": r["half_eq_pH"],
+                "X Variable": "Volume (cm³)" if r["x_col"] == "Volume (cm³)" else "Time (min)",
             }
             for r in results
         ]
