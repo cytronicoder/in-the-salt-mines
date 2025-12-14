@@ -55,6 +55,7 @@ def plot_titration_curves(results, output_dir="output"):
             alpha=0.3,
             label="Raw pH",
             markersize=4,
+            clip_on=False,
         )
 
         ax1.plot(
@@ -64,6 +65,7 @@ def plot_titration_curves(results, output_dir="output"):
             color=color,
             label="Smoothed pH",
             linewidth=2,
+            clip_on=False,
         )
 
         ax1.axvline(
@@ -103,6 +105,7 @@ def plot_titration_curves(results, output_dir="output"):
             color=color,
             label=r"$\frac{dpH}{dV}$",
             linewidth=2,
+            clip_on=False,
         )
         ax2.axvline(
             res["eq_volume"],
@@ -128,7 +131,21 @@ def plot_titration_curves(results, output_dir="output"):
             color=color,
             label=r"$\frac{d^2pH}{dV^2}$",
             linewidth=2,
+            clip_on=False,
         )
+
+        x_min = df["Volume (cm³)"].min()
+        x_max = df["Volume (cm³)"].max()
+        if x_max is None or x_min is None:
+            margin = 0.1
+        else:
+            span = (
+                x_max - x_min if x_max != x_min else abs(x_max) if x_max != 0 else 1.0
+            )
+            margin = span * 0.02
+
+        for ax in (ax1, ax2, ax3):
+            ax.set_xlim(x_min - margin, x_max + margin)
         ax3.axvline(
             res["eq_volume"],
             color=color,
