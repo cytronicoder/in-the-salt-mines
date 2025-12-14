@@ -8,54 +8,101 @@ from scipy.signal import savgol_filter
 
 
 def extract_runs(df):
-    """
-    Extracts individual runs from the wide-format CSV.
+    """Extract individual titration runs from the Logger Pro export.
+
+    The raw CSVs are in a wide format with columns such as
+    ``Run 1: Time (min)``, ``Run 1: pH`` and ``Run 1: Volume of NaOH Added (cm³)``.
+    We reshape each run into a tidy DataFrame with monotonically increasing
+    cumulative volume so downstream calculations (derivatives with respect to
+    volume, interpolation at half-equivalence, etc.) behave properly.
 
     Args:
-        df (pd.DataFrame): Wide-format DataFrame with columns like 'Run 1: Time (min)', 'Run 1: pH', etc.
+        df: Raw wide-format :class:`pandas.DataFrame` loaded directly from the CSV.
 
     Returns:
-        dict: Dictionary mapping run names to DataFrames with 'Time (min)' and 'pH' columns.
+        dict[str, pd.DataFrame]: Mapping of run name to cleaned DataFrame with
+        columns ``Time (min)``, ``pH``, ``Temperature (°C)`` (if present) and
+        ``Volume (cm³)``.
     """
+
     runs = {}
-    columns = df.columns
-    prefixes = set([col.split(":")[0] for col in columns if ":" in col])
+    prefixes = {
+        col.split(":")[0].strip()
+        for col in df.columns
+        if ":" in col and col.lower().startswith("run")
+    }
 
     for prefix in prefixes:
-        run_cols = [col for col in columns if col.startswith(prefix)]
+        run_cols = [col for col in df.columns if col.startswith(prefix)]
         run_df = df[run_cols].copy()
-
         run_df.columns = [col.split(": ")[1] for col in run_cols]
+
+        # Normalise column names we care about.
+        rename_map = {
+            "Volume of NaOH Added (cm³)": "Volume (cm³)",
+            "Temperature (°C)": "Temperature (°C)",
+            "Time (min)": "Time (min)",
+            "pH": "pH",
+        }
+        run_df = run_df.rename(columns=rename_map)
+
+        # Drop rows that are entirely empty, then forward-fill the manually
+        # entered cumulative volume so each pH reading has a corresponding
+        # volume value.
         run_df = run_df.dropna(how="all")
+        if "Volume (cm³)" in run_df.columns:
+            run_df["Volume (cm³)"] = (
+                pd.to_numeric(run_df["Volume (cm³)"], errors="coerce").ffill()
+            )
 
-        if "Time (min)" in run_df.columns and "pH" in run_df.columns:
-            run_df = run_df.dropna(subset=["Time (min)", "pH"])
-            run_df = run_df.sort_values("Time (min)")
+        # Coerce numeric for pH and time, and remove rows lacking either
+        # a pH reading or a cumulative volume.
+        run_df["pH"] = pd.to_numeric(run_df["pH"], errors="coerce")
+        run_df["Time (min)"] = pd.to_numeric(run_df["Time (min)"], errors="coerce")
 
-            runs[prefix] = run_df
+        run_df = run_df.dropna(subset=["pH", "Volume (cm³)"])
+
+        # Sort by cumulative volume and drop duplicate volume entries, keeping
+        # the latest pH reading for each distinct volume increment.
+        run_df = run_df.sort_values("Volume (cm³)")
+        run_df = run_df.drop_duplicates(subset="Volume (cm³)", keep="last")
+
+        if not run_df.empty:
+            runs[prefix] = run_df.reset_index(drop=True)
 
     return runs
 
 
 def calculate_derivatives(
-    df, time_col="Time (min)", ph_col="pH", window_length=15, polyorder=3
+    df,
+    x_col="Volume (cm³)",
+    ph_col="pH",
+    window_length=15,
+    polyorder=3,
 ):
-    """
-    Calculates 1st and 2nd derivatives of pH w.r.t Time using Savitzky-Golay smoothing.
+    """Smooth the pH trace and compute derivatives with respect to volume.
+
+    Using cumulative volume as the independent variable keeps the calculated
+    equivalence point aligned with the experimentally determined Veq (~25 mL)
+    and supports direct interpolation of the pH at half-equivalence volume.
 
     Args:
-        df (pd.DataFrame): DataFrame with time and pH data.
-        time_col (str, optional): Name of the time column (default: 'Time (min)').
-        ph_col (str, optional): Name of the pH column (default: 'pH').
-        window_length (int, optional): Window length for Savitzky-Golay filter (default: 15).
-        polyorder (int, optional): Polynomial order for Savitzky-Golay filter (default: 3).
+        df: DataFrame containing at least the columns specified by ``x_col``
+            (default ``"Volume (cm³)"``) and ``ph_col`` (default ``"pH"``).
+        x_col: Column name for the independent variable.
+        ph_col: Column name for the measured pH values.
+        window_length: Savitzky–Golay window length for smoothing.
+        polyorder: Polynomial order for the Savitzky–Golay filter.
 
     Returns:
-        pd.DataFrame: Input DataFrame with added 'pH_smooth', 'dpH/dt', and 'd2pH/dt2' columns.
+        pd.DataFrame: The original DataFrame with added ``pH_smooth``,
+        ``dpH/dx`` and ``d2pH/dx2`` columns.
     """
-    t = df[time_col].values
+
+    x = df[x_col].values
     ph = df[ph_col].values
 
+    # Ensure the smoothing window is valid for the data length.
     if window_length >= len(ph):
         window_length = len(ph) - 1 if len(ph) % 2 == 0 else len(ph)
     if window_length % 2 == 0:
@@ -65,17 +112,14 @@ def calculate_derivatives(
         if window_length % 2 == 0:
             window_length += 1
 
-    if len(ph) > window_length:
-        ph_smooth = savgol_filter(ph, window_length, polyorder)
-    else:
-        ph_smooth = ph
+    ph_smooth = savgol_filter(ph, window_length, polyorder) if len(ph) > window_length else ph
 
-    dpH = np.gradient(ph_smooth, t)
-    d2pH = np.gradient(dpH, t)
+    dpH = np.gradient(ph_smooth, x)
+    d2pH = np.gradient(dpH, x)
 
     df["pH_smooth"] = ph_smooth
-    df["dpH/dt"] = dpH
-    df["d2pH/dt2"] = d2pH
+    df["dpH/dx"] = dpH
+    df["d2pH/dx2"] = d2pH
 
     return df
 

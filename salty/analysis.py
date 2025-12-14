@@ -8,22 +8,23 @@ import pandas as pd
 from .data_processing import calculate_derivatives, extract_runs, load_titration_data
 
 
-def find_equivalence_point(df, time_col="Time (min)"):
-    """
-    Finds the equivalence point time where 1st derivative is max.
+def find_equivalence_point(df, x_col="Volume (cm³)"):
+    """Locate the equivalence point where the slope dpH/dx is maximal.
 
     Args:
-        df (pd.DataFrame): DataFrame with calculated derivatives.
-        time_col (str, optional): Name of the time column (default: 'Time (min)').
+        df: DataFrame containing derivative columns produced by
+            :func:`calculate_derivatives`.
+        x_col: Independent variable column (default ``"Volume (cm³)"``).
 
     Returns:
-        tuple: (equivalence time, equivalence pH).
+        tuple: (equivalence volume, pH at equivalence).
     """
-    max_idx = df["dpH/dt"].idxmax()
-    eq_time = df.loc[max_idx, time_col]
+
+    max_idx = df["dpH/dx"].idxmax()
+    eq_x = df.loc[max_idx, x_col]
     eq_pH = df.loc[max_idx, "pH_smooth"]
 
-    return eq_time, eq_pH
+    return eq_x, eq_pH
 
 
 def analyze_titration(df, run_name):
@@ -38,16 +39,16 @@ def analyze_titration(df, run_name):
         dict: Analysis results including equivalence point, half-equivalence point, and pKa.
     """
     df = calculate_derivatives(df)
-    eq_time, eq_pH = find_equivalence_point(df)
+    eq_vol, eq_pH = find_equivalence_point(df)
 
-    half_eq_time = eq_time / 2
-    half_eq_pH = np.interp(half_eq_time, df["Time (min)"], df["pH_smooth"])
+    half_eq_vol = eq_vol / 2
+    half_eq_pH = np.interp(half_eq_vol, df["Volume (cm³)"], df["pH_smooth"])
 
     return {
         "run_name": run_name,
-        "eq_time": eq_time,
+        "eq_volume": eq_vol,
         "eq_pH": eq_pH,
-        "half_eq_time": half_eq_time,
+        "half_eq_volume": half_eq_vol,
         "half_eq_pH": half_eq_pH,
         "data": df,
     }
@@ -103,9 +104,9 @@ def create_results_dataframe(results):
             {
                 "NaCl Concentration (M)": r["nacl_conc"],
                 "Run": r["run_name"],
-                "Equivalence Time (min)": r["eq_time"],
+                "Equivalence Volume (cm³)": r["eq_volume"],
                 "Equivalence pH": r["eq_pH"],
-                "Half-Equivalence Time (min)": r["half_eq_time"],
+                "Half-Equivalence Volume (cm³)": r["half_eq_volume"],
                 "Half-Equivalence pH (pKa)": r["half_eq_pH"],
             }
             for r in results
