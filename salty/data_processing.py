@@ -62,7 +62,9 @@ def extract_runs(df):
         run_df["Time (min)"] = pd.to_numeric(run_df["Time (min)"], errors="coerce")
 
         # Determine the independent variable: prefer volume, fall back to time.
-        if "Volume (cm³)" in run_df.columns and run_df["Volume (cm³)"].notna().any():
+        if ("Volume (cm³)" in run_df.columns and 
+            run_df["Volume (cm³)"].notna().any() and 
+            run_df["Volume (cm³)"].nunique() > 1):
             x_col = "Volume (cm³)"
             subset_cols = ["pH", "Volume (cm³)"]
         else:
@@ -85,8 +87,8 @@ def calculate_derivatives(
     df,
     x_col="Volume (cm³)",
     ph_col="pH",
-    window_length=15,
-    polyorder=3,
+    window_length=10,
+    polyorder=4,
 ):
     """Smooth the pH trace and compute derivatives with respect to volume.
 
