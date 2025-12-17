@@ -45,9 +45,12 @@ def main():
         ("data/ms besant go brr brr v2- 0.2m nacl.csv", 0.2),
         ("data/ms besant go brr brr v2- 0.4m nacl.csv", 0.4),
         # ("data/ms besant go brr brr- 0.5m nacl.csv", 0.5),
+        ("data/ms besant go brr brr v2- 0.6m nacl.csv", 0.6),
         ("data/ms besant go brr brr- 0.8m nacl.csv", 0.8),
+        ("data/ms besant go brr brr v2- 0.8m nacl.csv", 0.8),
         # ("data/ms besant go brr - 1m nacl.csv", 1.0),
-        ("data/ms besant go brr brr- 1.0m nacl.csv", 1.0),
+        # ("data/ms besant go brr brr- 1.0m nacl.csv", 1.0),
+        ("data/ms besant go brr brr v2- 1.0m nacl.csv", 1.0),
     ]
     logging.info("Configured %d input files for analysis", len(files))
 
