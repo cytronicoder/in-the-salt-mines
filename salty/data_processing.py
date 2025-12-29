@@ -140,6 +140,8 @@ def aggregate_volume_steps(df, volume_col="Volume (cm³)", ph_col="pH"):
         n_tail = min(10, max(3, n_total // 3))
         tail_values = ph_values.tail(n_tail)
         ph_step = float(np.median(tail_values))
+        # For a single reading, the sample standard deviation with ddof=1 would be undefined (NaN),
+        # so we treat its uncertainty as 0.0 (equivalent to the population std with ddof=0).
         ph_step_sd = float(np.std(tail_values, ddof=1)) if len(tail_values) > 1 else 0.0
         records.append(
             {
