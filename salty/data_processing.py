@@ -2,9 +2,28 @@
 Handles CSV parsing, run extraction, and derivative calculations.
 """
 
+# Current (legacy) algorithm summary for context and documentation:
+# - CSV parsing: load wide Logger Pro exports; each "Run X" has time, pH,
+#   and cumulative volume columns.
+# - Volume forward-fill: after dropping empty rows, forward-fill the manually
+#   entered cumulative volume so each pH reading has a paired volume.
+# - Deduping strategy: sort by the independent variable and drop duplicates,
+#   keeping only the last reading at each volume/time value.
+# - Smoothing: apply a Savitzky–Golay filter with fixed window/polyorder.
+# - Derivatives: compute dpH/dx and d2pH/dx2 using numpy gradient on the
+#   smoothed trace.
+# - Equivalence point detection: take the maximum dpH/dx as Veq.
+# - pKa extraction: interpolate the smoothed pH at half-equivalence (Veq/2).
+# - Summary stats: group pKa by NaCl concentration and report mean/SD/SEM.
+
+import importlib.util
+
 import numpy as np
 import pandas as pd
-from scipy.signal import savgol_filter
+
+HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
+if HAVE_SCIPY:
+    from scipy.signal import savgol_filter
 
 
 def extract_runs(df):
@@ -73,24 +92,78 @@ def extract_runs(df):
 
         run_df = run_df.dropna(subset=subset_cols)
 
-        # Sort by the independent variable and drop duplicates.
-        run_df = run_df.sort_values(x_col)
-        run_df = run_df.drop_duplicates(subset=x_col, keep="last")
-
         if not run_df.empty:
             runs[prefix] = {"df": run_df.reset_index(drop=True), "x_col": x_col}
 
     return runs
 
 
+def _choose_savgol_window(n_points, min_window=5):
+    """Choose a Savitzky–Golay window length based on dataset size."""
+
+    if n_points < min_window:
+        return None
+    candidate = max(min_window, int(n_points // 3))
+    if candidate % 2 == 0:
+        candidate += 1
+    max_window = max(min_window, int(n_points // 2))
+    if max_window % 2 == 0:
+        max_window -= 1
+    if candidate > max_window:
+        candidate = max_window
+    return candidate if candidate >= min_window else None
+
+
+def aggregate_volume_steps(df, volume_col="Volume (cm³)", ph_col="pH"):
+    """Aggregate raw readings into volume steps with robust equilibrium pH.
+
+    For each constant (forward-filled) volume segment, compute:
+      - pH_step: median of the last N readings (N adapts with segment length)
+      - pH_step_sd: standard deviation over those last N readings
+      - n_step: number of raw readings in the segment
+    """
+
+    if volume_col not in df.columns or ph_col not in df.columns:
+        return pd.DataFrame(columns=[volume_col, "pH_step", "pH_step_sd", "n_step"])
+
+    working = df[[volume_col, ph_col]].copy()
+    working[volume_col] = pd.to_numeric(working[volume_col], errors="coerce").ffill()
+    working[ph_col] = pd.to_numeric(working[ph_col], errors="coerce")
+    working = working.dropna(subset=[volume_col, ph_col])
+
+    records = []
+    for volume, group in working.groupby(volume_col, sort=False):
+        ph_values = group[ph_col].dropna()
+        if ph_values.empty:
+            continue
+        n_total = len(ph_values)
+        n_tail = min(10, max(3, n_total // 3))
+        tail_values = ph_values.tail(n_tail)
+        ph_step = float(np.median(tail_values))
+        ph_step_sd = float(np.std(tail_values, ddof=1)) if len(tail_values) > 1 else 0.0
+        records.append(
+            {
+                volume_col: float(volume),
+                "pH_step": ph_step,
+                "pH_step_sd": ph_step_sd,
+                "n_step": int(n_total),
+            }
+        )
+
+    step_df = pd.DataFrame.from_records(records)
+    if not step_df.empty:
+        step_df = step_df.sort_values(volume_col).reset_index(drop=True)
+    return step_df
+
+
 def calculate_derivatives(
     df,
     x_col="Volume (cm³)",
-    ph_col="pH",
-    window_length=10,
-    polyorder=4,
+    ph_col="pH_step",
+    smooth=True,
+    polyorder=2,
 ):
-    """Smooth the pH trace and compute derivatives with respect to volume.
+    """Compute derivatives with respect to the independent variable.
 
     Using cumulative volume as the independent variable keeps the calculated
     equivalence point aligned with the experimentally determined Veq (~25 mL)
@@ -104,6 +177,9 @@ def calculate_derivatives(
         window_length: Savitzky–Golay window length for smoothing.
         polyorder: Polynomial order for the Savitzky–Golay filter.
 
+    The method respects uneven spacing in ``x_col`` and uses optional
+    Savitzky–Golay smoothing with an adaptive window length.
+
     Returns:
         pd.DataFrame: The original DataFrame with added ``pH_smooth``,
         ``dpH/dx`` and ``d2pH/dx2`` columns.
@@ -112,17 +188,11 @@ def calculate_derivatives(
     x = df[x_col].values
     ph = df[ph_col].values
 
-    # Ensure the smoothing window is valid for the data length.
-    if window_length >= len(ph):
-        window_length = len(ph) - 1 if len(ph) % 2 == 0 else len(ph)
-    if window_length % 2 == 0:
-        window_length -= 1
-    if window_length < polyorder + 2:
-        window_length = polyorder + 2
-        if window_length % 2 == 0:
-            window_length += 1
-
-    ph_smooth = savgol_filter(ph, window_length, polyorder) if len(ph) > window_length else ph
+    window_length = _choose_savgol_window(len(ph))
+    if smooth and HAVE_SCIPY and window_length and window_length > polyorder:
+        ph_smooth = savgol_filter(ph, window_length, polyorder)
+    else:
+        ph_smooth = ph
 
     dpH = np.gradient(ph_smooth, x)
     d2pH = np.gradient(dpH, x)

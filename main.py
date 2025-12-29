@@ -3,6 +3,16 @@
 Main script for running titration analysis.
 """
 
+# Pipeline overview (README-style):
+# 1) Load Logger Pro CSVs and split into individual runs.
+# 2) Forward-fill cumulative volume and aggregate readings into volume steps
+#    using median pH from the tail of each step (robust equilibrium estimate).
+# 3) Interpolate pH(V) (linear by default), compute derivatives with uneven
+#    spacing, and detect equivalence with QC guardrails.
+# 4) Estimate pKa using buffer-region regression and report a half-equivalence
+#    check, along with uncertainties and HH-fit rescue values if needed.
+# 5) Export per-run results, statistics across replicates, and diagnostics plots.
+
 import logging
 import os
 import sys

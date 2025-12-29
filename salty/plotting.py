@@ -25,7 +25,7 @@ def setup_plot_style():
 
 def plot_titration_curves(results, output_dir="output"):
     """
-    Plot titration curves and first derivatives for all runs.
+    Plot titration curves, derivatives, and Henderson–Hasselbalch diagnostics.
 
     Args:
         results (list): List of analysis result dictionaries.
@@ -41,17 +41,19 @@ def plot_titration_curves(results, output_dir="output"):
     output_paths = []
 
     for i, res in enumerate(results):
-        df = res["data"]
+        raw_df = res["data"]
+        step_df = res["step_data"]
+        dense_df = res["dense_curve"]
         run_name = res["run_name"]
         x_col = res.get("x_col", "Volume (cm³)")
         x_label = r"Volume of NaOH added (cm$^3$)" if x_col == "Volume (cm³)" else r"Time (min)"
         color = colors[i % len(colors)]
 
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6))
 
         ax1.plot(
-            df[x_col],
-            df["pH"],
+            raw_df[x_col],
+            raw_df["pH"],
             ".",
             color=color,
             alpha=0.3,
@@ -61,21 +63,32 @@ def plot_titration_curves(results, output_dir="output"):
         )
 
         ax1.plot(
-            df[x_col],
-            df["pH_smooth"],
-            "-",
+            step_df["Volume (cm³)"],
+            step_df["pH_step"],
+            "o",
             color=color,
-            label="Smoothed pH",
-            linewidth=2,
+            label="Step pH (median)",
+            markersize=6,
             clip_on=False,
         )
 
+        if not dense_df.empty:
+            ax1.plot(
+                dense_df["Volume (cm³)"],
+                dense_df["pH_interp"],
+                "-",
+                color=color,
+                label="Interpolated pH",
+                linewidth=2,
+                clip_on=False,
+            )
+
         ax1.axvline(
-            res["eq_x"],
+            res["veq_used"],
             color=color,
             linestyle="--",
             linewidth=2.5,
-            label=f'Equivalence: pH = {res["eq_pH"]:.2f}',
+            label=f'Equivalence ({res["veq_method"]})',
         )
         ax1.axvline(
             res["half_eq_x"],
@@ -101,8 +114,8 @@ def plot_titration_curves(results, output_dir="output"):
         ax1.spines["right"].set_visible(False)
 
         ax2.plot(
-            df[x_col],
-            df["dpH/dx"],
+            step_df["Volume (cm³)"],
+            step_df["dpH/dx"],
             "-",
             color=color,
             label=r"$\frac{dpH}{dV}$" if x_col == "Volume (cm³)" else r"$\frac{dpH}{dt}$",
@@ -110,16 +123,19 @@ def plot_titration_curves(results, output_dir="output"):
             clip_on=False,
         )
         ax2.axvline(
-            res["eq_x"],
+            res["veq_used"],
             color=color,
             linestyle="--",
             linewidth=2.5,
-            label=f'Equivalence: pH = {res["eq_pH"]:.2f}',
+            label="Equivalence",
         )
         ax2.axhline(0, color="gray", linestyle="-", linewidth=0.8, alpha=0.5)
         ax2.set_title(f"First Derivative: {run_name}", fontsize=24, fontweight="bold")
         ax2.set_xlabel(x_label, fontsize=18)
-        ax2.set_ylabel(r"$\frac{dpH}{dV}$" if x_col == "Volume (cm³)" else r"$\frac{dpH}{dt}$", fontsize=18)
+        ax2.set_ylabel(
+            r"$\frac{dpH}{dV}$" if x_col == "Volume (cm³)" else r"$\frac{dpH}{dt}$",
+            fontsize=18,
+        )
         ax2.tick_params(labelsize=16)
         ax2.legend(fontsize=18, loc="best")
         ax2.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
@@ -127,17 +143,29 @@ def plot_titration_curves(results, output_dir="output"):
         ax2.spines["right"].set_visible(False)
 
         ax3.plot(
-            df[x_col],
-            df["d2pH/dx2"],
-            "-",
+            res["buffer_region"]["log10_ratio"],
+            res["buffer_region"]["pH_step"],
+            "o",
             color=color,
-            label=r"$\frac{d^2pH}{dV^2}$" if x_col == "Volume (cm³)" else r"$\frac{d^2pH}{dt^2}$",
-            linewidth=2,
+            label="Buffer region",
+            markersize=6,
             clip_on=False,
         )
+        if not res["buffer_region"].empty:
+            ax3.plot(
+                res["buffer_region"]["log10_ratio"],
+                res["buffer_region"]["pH_fit"],
+                "-",
+                color="black",
+                linewidth=2,
+                label=(
+                    f"Fit: slope={res['slope_reg']:.2f}, "
+                    f"pKa={res['pka_reg']:.2f}"
+                ),
+            )
 
-        x_min = df[x_col].min()
-        x_max = df[x_col].max()
+        x_min = step_df["Volume (cm³)"].min()
+        x_max = step_df["Volume (cm³)"].max()
         if x_max is None or x_min is None:
             margin = 0.1
         else:
@@ -146,19 +174,13 @@ def plot_titration_curves(results, output_dir="output"):
             )
             margin = span * 0.02
 
-        for ax in (ax1, ax2, ax3):
+        for ax in (ax1, ax2):
             ax.set_xlim(x_min - margin, x_max + margin)
-        ax3.axvline(
-            res["eq_x"],
-            color=color,
-            linestyle="--",
-            linewidth=2.5,
-            label=f'Equivalence: pH = {res["eq_pH"]:.2f}',
+        ax3.set_title(
+            f"Henderson–Hasselbalch: {run_name}", fontsize=24, fontweight="bold"
         )
-        ax3.axhline(0, color="gray", linestyle="-", linewidth=0.8, alpha=0.5)
-        ax3.set_title(f"Second Derivative: {run_name}", fontsize=24, fontweight="bold")
-        ax3.set_xlabel(x_label, fontsize=18)
-        ax3.set_ylabel(r"$\frac{d^2pH}{dV^2}$" if x_col == "Volume (cm³)" else r"$\frac{d^2pH}{dt^2}$", fontsize=18)
+        ax3.set_xlabel(r"$\log_{10}\left(\frac{V}{V_{eq}-V}\right)$", fontsize=18)
+        ax3.set_ylabel(r"pH", fontsize=18)
         ax3.tick_params(labelsize=16)
         ax3.legend(fontsize=18, loc="best")
         ax3.grid(True, alpha=0.3, linestyle="--", linewidth=0.5)
@@ -216,7 +238,7 @@ def plot_statistical_summary(stats_df, results_df, output_dir="output"):
         subset = results_df[results_df["NaCl Concentration (M)"] == conc]
         ax1.plot(
             [conc] * len(subset),
-            subset["Half-Equivalence pH (pKa)"],
+            subset["pKa (buffer regression)"],
             marker="s",
             color=color,
             markersize=10,
