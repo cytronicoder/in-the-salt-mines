@@ -1,17 +1,22 @@
-NaCl Concentration (M),Run,Equivalence X,Equivalence pH,Half-Equivalence X,Half-Equivalence pH (pKa),X Variable
-0.0,0.0M - Run 2,25.7,9.610425734945334,12.85,5.249091288799426,Volume (cm³)
-0.0,0.0M - Run 1,26.2,9.760615886132985,13.1,5.281673958048652,Volume (cm³)
-0.0,0.0M - Run 1,24.7,9.060096749542614,12.35,5.284024978710219,Volume (cm³)
-0.2,0.2M - Run 2,24.7,10.201286283283162,12.35,5.228865520888813,Volume (cm³)
-0.2,0.2M - Run 1,24.7,9.673100664237785,12.35,5.185904366561439,Volume (cm³)
-0.4,0.4M - Run 2,30.0,12.463477043595503,15.0,5.040107432007348,Volume (cm³)
-0.4,0.4M - Run 1,25.2,8.23391037867026,12.6,4.833331184317277,Volume (cm³)
-0.4,0.4M - Run 3,21.2,8.309470782695858,10.6,4.72626596686732,Volume (cm³)
-0.6,0.6M - Run 2,21.2,9.57461404229009,10.6,4.698534688793646,Volume (cm³)
-0.6,0.6M - Run 1,21.7,8.165520178546226,10.85,4.687470866722735,Volume (cm³)
-0.8,0.8M - Run 2,24.7,9.085253960460891,12.35,5.042478098092959,Volume (cm³)
-0.8,0.8M - Run 1,25.0,12.763483873160911,12.5,5.07335114218229,Volume (cm³)
-0.8,0.8M - Run 3,25.0,9.324007175010804,12.5,5.087818428183666,Volume (cm³)
-0.8,0.8M - Run 1,20.7,7.2308522558303245,10.35,4.765877797186233,Volume (cm³)
-1.0,1.0M - Run 2,20.0,12.531893434318627,10.0,4.7772414439195545,Volume (cm³)
-1.0,1.0M - Run 1,21.5,9.073213616209703,10.75,4.753339605417013,Volume (cm³)
+Run,NaCl Concentration (M),pKa (buffer regression),Equivalence QC Pass,Veq (used),Source File
+0.0M - Run 1,0.0,5.30304020826699,True,25.7,ms besant go brr brr- 0.0m nacl.csv
+0.0M - Run 2,0.0,5.256074312532822,True,25.2,ms besant go brr brr- 0.0m nacl.csv
+0.0M - Run 1,0.0,5.312369725123579,True,24.5,ms besant go brr brr v2- 0.0m nacl.csv
+0.2M - Run 1,0.2,5.220544385933747,True,24.7,ms besant go brr brr v2- 0.2m nacl.csv
+0.2M - Run 2,0.2,5.273519978352201,True,24.2,ms besant go brr brr v2- 0.2m nacl.csv
+0.2M - Run 3,0.2,5.219412322388991,True,24.7,ms besant go brr brr v2- 0.2m nacl.csv
+0.4M - Run 1,0.4,5.199999999999998,True,25.2,ms besant go brr brr v2- 0.4m nacl.csv
+0.4M - Run 2,0.4,5.2,True,24.7,ms besant go brr brr v2- 0.4m nacl.csv
+0.4M - Run 3,0.4,5.193512473406734,True,21.2,ms besant go brr brr v2- 0.4m nacl.csv
+0.5M - Run 1,0.5,5.164856462478125,True,24.5,ms besant go brr brr- 0.5m nacl.csv
+0.5M - Run 2,0.5,5.175110297041385,True,24.5,ms besant go brr brr- 0.5m nacl.csv
+0.5M - Run 3,0.5,5.175536434833905,True,24.5,ms besant go brr brr- 0.5m nacl.csv
+0.6M - Run 1,0.6,5.119999999999997,True,21.7,ms besant go brr brr v2- 0.6m nacl.csv
+0.6M - Run 2,0.6,5.130550913863567,True,21.2,ms besant go brr brr v2- 0.6m nacl.csv
+0.6M - Run 3,0.6,5.130590503264626,True,21.2,ms besant go brr brr v2- 0.6m nacl.csv
+0.8M - Run 1,0.8,5.079723197808198,False,24.7,ms besant go brr brr- 0.8m nacl.csv
+0.8M - Run 2,0.8,5.085753882489043,True,24.7,ms besant go brr brr- 0.8m nacl.csv
+0.8M - Run 3,0.8,5.059434907587035,True,23.7,ms besant go brr brr- 0.8m nacl.csv
+1.0M - Run 3,1.0,4.980810623490873,True,22.0,ms besant go brr - 1m nacl.csv
+1.0M - Run 1,1.0,4.814170227313168,False,22.2,ms besant go brr brr v2- 1.0m nacl.csv
+1.0M - Run 2,1.0,4.8313388960428,False,20.0,ms besant go brr brr v2- 1.0m nacl.csv
