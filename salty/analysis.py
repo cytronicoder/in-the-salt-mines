@@ -222,7 +222,12 @@ def estimate_uncertainties(step_df, veq_primary, veq_secondary, pka_reg):
     else:
         veq_unc = np.nan
 
-    if np.isfinite(pka_reg) and np.isfinite(veq_unc) and np.isfinite(veq_primary):
+    if (
+        np.isfinite(pka_reg)
+        and np.isfinite(veq_unc)
+        and np.isfinite(veq_primary)
+        and veq_primary >= 0.1
+    ):
         pka_plus = fit_buffer_region(step_df, veq_primary + veq_unc)["pka_reg"]
         pka_minus = fit_buffer_region(step_df, max(veq_primary - veq_unc, 0.1))[
             "pka_reg"
