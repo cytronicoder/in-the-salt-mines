@@ -191,7 +191,7 @@ def calculate_derivatives(
     ph = df[ph_col].values
 
     window_length = _choose_savgol_window(len(ph))
-    if smooth and HAVE_SCIPY and window_length and window_length > polyorder:
+    if smooth and HAVE_SCIPY and window_length is not None and window_length > polyorder:
         ph_smooth = savgol_filter(ph, window_length, polyorder)
     else:
         ph_smooth = ph
