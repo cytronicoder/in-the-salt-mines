@@ -176,11 +176,11 @@ def calculate_derivatives(
             (default ``"Volume (cm³)"``) and ``ph_col`` (default ``"pH"``).
         x_col: Column name for the independent variable.
         ph_col: Column name for the measured pH values.
-        window_length: Savitzky–Golay window length for smoothing.
         polyorder: Polynomial order for the Savitzky–Golay filter.
 
     The method respects uneven spacing in ``x_col`` and uses optional
-    Savitzky–Golay smoothing with an adaptive window length.
+    Savitzky–Golay smoothing with an adaptive window length chosen
+    automatically based on the dataset size.
 
     Returns:
         pd.DataFrame: The original DataFrame with added ``pH_smooth``,
