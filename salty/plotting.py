@@ -164,8 +164,11 @@ def plot_titration_curves(results, output_dir="output"):
                 ),
             )
 
-        x_min = step_df["Volume (cm³)"].min()
-        x_max = step_df["Volume (cm³)"].max()
+        # Determine which column to use for x-axis limits. Prefer x_col if present,
+        # but fall back to volume to preserve existing behavior when needed.
+        x_column = x_col if x_col in step_df.columns else "Volume (cm³)"
+        x_min = step_df[x_column].min()
+        x_max = step_df[x_column].max()
         if x_max is None or x_min is None:
             margin = 0.1
         else:
