@@ -248,10 +248,35 @@ def analyze_titration(df, run_name, x_col="Volume (cm³)"):
     """
     step_df = aggregate_volume_steps(df)
     if step_df.empty:
+        # Return a full result schema with default values so downstream code
+        # can safely access all expected keys without KeyError.
         return {
             "run_name": run_name,
-            "skip_reason": "No valid volume/pH data after aggregation",
+            "eq_x": np.nan,
+            "eq_pH": np.nan,
+            "eq_qc_pass": False,
+            "eq_qc_reason": "No valid volume/pH data after aggregation",
+            "veq_used": np.nan,
+            "veq_method": None,
+            "veq_uncertainty": np.nan,
+            "half_eq_x": np.nan,
+            "half_eq_pH": np.nan,
+            "pka_reg": np.nan,
+            "slope_reg": np.nan,
+            "r2_reg": np.nan,
+            "pka_half": np.nan,
+            "pka_uncertainty": np.nan,
+            "hh_fit": {},
+            "x_col": x_col,
             "data": df,
+            "step_data": step_df,
+            "dense_curve": {},
+            "buffer_region": pd.DataFrame(),
+            "diagnostics": {
+                "interpolator_method": None,
+                "step_points": 0,
+            },
+            "skip_reason": "No valid volume/pH data after aggregation",
         }
 
     step_df = calculate_derivatives(step_df, x_col="Volume (cm³)", ph_col="pH_step")
