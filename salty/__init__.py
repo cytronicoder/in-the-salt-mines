@@ -17,7 +17,7 @@ from .analysis import (
     analyze_titration,
     calculate_statistics,
     create_results_dataframe,
-    find_equivalence_point,
+    detect_equivalence_point,
     print_statistics,
     process_all_files,
 )
@@ -35,7 +35,7 @@ __all__ = [
     "calculate_derivatives",
     "load_titration_data",
     # Analysis
-    "find_equivalence_point",
+    "detect_equivalence_point",
     "analyze_titration",
     "process_all_files",
     "create_results_dataframe",

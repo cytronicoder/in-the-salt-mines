@@ -49,17 +49,14 @@ def main():
     logging.info("Initializing titration analysis pipeline")
 
     files = [
-        # ("data/ms besant go brr - 0m nacl.csv", 0.0),
         ("data/ms besant go brr brr- 0.0m nacl.csv", 0.0),
         ("data/ms besant go brr brr v2- 0.0m nacl.csv", 0.0),
         ("data/ms besant go brr brr v2- 0.2m nacl.csv", 0.2),
         ("data/ms besant go brr brr v2- 0.4m nacl.csv", 0.4),
-        # ("data/ms besant go brr brr- 0.5m nacl.csv", 0.5),
+        ("data/ms besant go brr brr- 0.5m nacl.csv", 0.5),
         ("data/ms besant go brr brr v2- 0.6m nacl.csv", 0.6),
         ("data/ms besant go brr brr- 0.8m nacl.csv", 0.8),
-        ("data/ms besant go brr brr v2- 0.8m nacl.csv", 0.8),
-        # ("data/ms besant go brr - 1m nacl.csv", 1.0),
-        # ("data/ms besant go brr brr- 1.0m nacl.csv", 1.0),
+        ("data/ms besant go brr - 1m nacl.csv", 1.0),
         ("data/ms besant go brr brr v2- 1.0m nacl.csv", 1.0),
     ]
     logging.info("Configured %d input files for analysis", len(files))
@@ -98,6 +95,27 @@ def main():
     )
 
     print_statistics(stats_df, results_df)
+
+    # Check data coverage: ensure at least 3 runs per concentration
+    underpowered = stats_df[stats_df['n'] < 3]
+    if not underpowered.empty:
+        # ensure output directory exists before writing report
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+        msg_lines = ["Data coverage issues detected:\n"]
+        for _, row in underpowered.iterrows():
+            conc = row['NaCl Concentration (M)']
+            n = int(row['n'])
+            msg_lines.append(f" - {conc} M has only {n} valid runs (n<3)\n")
+            subset = results_df[results_df['NaCl Concentration (M)'] == conc]
+            for _, r in subset.iterrows():
+                msg_lines.append(
+                    f"     {r['Run']}: pKa={r['pKa (buffer regression)']} (QC: {r['Equivalence QC Pass']})\n"
+                )
+        report_path = os.path.join(output_dir, 'data_coverage_report.txt')
+        with open(report_path, 'w') as fh:
+            fh.writelines(msg_lines)
+        logging.warning('Insufficient replication for some concentrations; report written to %s', report_path)
 
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)

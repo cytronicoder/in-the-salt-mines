@@ -3,9 +3,9 @@ Analyzing titration data and finding equivalence points.
 """
 
 import importlib.util
-
 import numpy as np
 import pandas as pd
+import os
 
 from .data_processing import (
     aggregate_volume_steps,
@@ -240,21 +240,10 @@ def estimate_uncertainties(step_df, veq_primary, veq_secondary, pka_reg):
 
 
 def analyze_titration(df, run_name, x_col="Volume (cm³)"):
-    """
-    Analyzes a single titration run.
+    """Analyze a single titration run."""
 
-    Args:
-        df (pd.DataFrame): DataFrame with time and pH data.
-        run_name (str): Name identifier for this run.
-        x_col (str): Independent variable column.
-
-    Returns:
-        dict: Analysis results including equivalence point, half-equivalence point, and pKa.
-    """
     step_df = aggregate_volume_steps(df)
     if step_df.empty:
-        # Return a full result schema with default values so downstream code
-        # can safely access all expected keys without KeyError.
         return {
             "run_name": run_name,
             "eq_x": np.nan,
@@ -277,10 +266,7 @@ def analyze_titration(df, run_name, x_col="Volume (cm³)"):
             "step_data": step_df,
             "dense_curve": {},
             "buffer_region": pd.DataFrame(),
-            "diagnostics": {
-                "interpolator_method": None,
-                "step_points": 0,
-            },
+            "diagnostics": {"interpolator_method": None, "step_points": 0},
             "skip_reason": "No valid volume/pH data after aggregation",
         }
 
@@ -290,33 +276,65 @@ def analyze_titration(df, run_name, x_col="Volume (cm³)"):
 
     eq_info = detect_equivalence_point(step_df)
     hh_fit = fit_henderson_hasselbalch(step_df)
-    veq_deriv = eq_info["eq_x"] if eq_info["qc_pass"] else np.nan
-    veq_used = veq_deriv if np.isfinite(veq_deriv) else hh_fit["veq_fit"]
-    veq_method = "derivative" if np.isfinite(veq_deriv) else "HH_fit"
 
-    # Ensure buffer_fit always has the expected keys, even when veq_used is invalid
+    veq_deriv = eq_info["eq_x"] if eq_info["qc_pass"] else np.nan
+    if np.isfinite(veq_deriv):
+        veq_used, veq_method = veq_deriv, "derivative"
+    elif np.isfinite(hh_fit.get("veq_fit", np.nan)):
+        veq_used, veq_method = hh_fit["veq_fit"], "HH_fit"
+    elif np.isfinite(eq_info.get("eq_x", np.nan)):
+        veq_used, veq_method = eq_info["eq_x"], "derivative_weak"
+    else:
+        veq_used, veq_method = np.nan, "unknown"
+
+    # ---- buffer-region pKa logic with rescue ----
     default_buffer_fit = {
         "pka_reg": np.nan,
         "slope_reg": np.nan,
         "r2": np.nan,
+        "n_points": 0,
         "buffer_df": pd.DataFrame(),
     }
+
     if np.isfinite(veq_used):
-        raw_buffer_fit = fit_buffer_region(step_df, veq_used)
         buffer_fit = default_buffer_fit.copy()
-        if isinstance(raw_buffer_fit, dict):
-            buffer_fit.update(raw_buffer_fit)
+        buffer_fit.update(fit_buffer_region(step_df, veq_used))
     else:
-        buffer_fit = default_buffer_fit
+        buffer_fit = default_buffer_fit.copy()
+
+    if np.isfinite(veq_used):
+        try:
+            if buffer_fit["n_points"] < 3 or not np.isfinite(buffer_fit["pka_reg"]):
+                for factor in (0.85, 0.9, 0.95, 1.05, 1.1):
+                    bf = fit_buffer_region(step_df, veq_used * factor)
+                    if bf["n_points"] >= 3 and np.isfinite(bf["pka_reg"]):
+                        buffer_fit = bf
+                        break
+
+            half_eq_x = veq_used / 2
+            half_eq_pH = float(interpolator["func"](half_eq_x))
+            if buffer_fit["n_points"] < 3 and np.isfinite(half_eq_pH):
+                buffer_fit = {
+                    "pka_reg": half_eq_pH,
+                    "slope_reg": np.nan,
+                    "r2": np.nan,
+                    "n_points": 1,
+                    "buffer_df": pd.DataFrame(
+                        {"Volume (cm³)": [half_eq_x], "pH_step": [half_eq_pH]}
+                    ),
+                }
+        except Exception:
+            pass
+
+    pka_reg = buffer_fit["pka_reg"]
+    if not np.isfinite(pka_reg) and np.isfinite(hh_fit.get("pka_fit", np.nan)):
+        pka_reg = hh_fit["pka_fit"]
+
     half_eq_x = veq_used / 2 if np.isfinite(veq_used) else np.nan
-    half_eq_pH = (
-        float(interpolator["func"](half_eq_x))
-        if np.isfinite(half_eq_x)
-        else np.nan
-    )
+    half_eq_pH = float(interpolator["func"](half_eq_x)) if np.isfinite(half_eq_x) else np.nan
 
     veq_unc, pka_unc = estimate_uncertainties(
-        step_df, veq_used, hh_fit["veq_fit"], buffer_fit.get("pka_reg", np.nan)
+        step_df, veq_used, hh_fit.get("veq_fit", np.nan), pka_reg
     )
 
     return {
@@ -330,7 +348,7 @@ def analyze_titration(df, run_name, x_col="Volume (cm³)"):
         "veq_uncertainty": veq_unc,
         "half_eq_x": half_eq_x,
         "half_eq_pH": half_eq_pH,
-        "pka_reg": buffer_fit.get("pka_reg", np.nan),
+        "pka_reg": pka_reg,
         "slope_reg": buffer_fit.get("slope_reg", np.nan),
         "r2_reg": buffer_fit.get("r2", np.nan),
         "pka_half": half_eq_pH,
@@ -349,15 +367,7 @@ def analyze_titration(df, run_name, x_col="Volume (cm³)"):
 
 
 def process_all_files(file_list):
-    """
-    Process multiple titration data files.
-
-    Args:
-        file_list (list of tuples): List of (filepath, nacl_concentration) tuples.
-
-    Returns:
-        list: List of analysis result dictionaries.
-    """
+    """Process multiple titration data files."""
     results = []
 
     for filepath, nacl_conc in file_list:
@@ -369,140 +379,70 @@ def process_all_files(file_list):
             for run_name, run_info in runs.items():
                 run_df = run_info["df"]
                 x_col = run_info["x_col"]
-                print(f"  Analyzing {run_name} (using {x_col})...")
-                if "Volume (cm³)" not in run_df.columns:
-                    print(f"    Skipping {run_name} (missing volume column)")
-                    continue
-                if len(run_df) < 10:
-                    print(f"    Skipping {run_name} (not enough data points)")
+
+                if "Volume (cm³)" not in run_df.columns or len(run_df) < 10:
                     continue
 
                 analysis = analyze_titration(
                     run_df, f"{nacl_conc}M - {run_name}", x_col=x_col
                 )
                 if analysis.get("skip_reason"):
-                    print(f"    Skipping {run_name}: {analysis['skip_reason']}")
                     continue
+
                 analysis["nacl_conc"] = nacl_conc
+                analysis["source_file"] = os.path.basename(filepath)
                 results.append(analysis)
 
         except Exception as e:
             print(f"Error processing {filepath}: {e}")
 
-    print("\nAnalysis Complete.")
     return results
 
 
 def create_results_dataframe(results):
-    """
-    Convert analysis results to a pandas DataFrame.
-
-    Args:
-        results (list): List of analysis result dictionaries.
-
-    Returns:
-        pd.DataFrame: DataFrame with organized results.
-    """
-    results_df = pd.DataFrame(
-        [
+    """Create a tidy DataFrame of per-run results for downstream analysis/plotting."""
+    rows = []
+    for res in results:
+        rows.append(
             {
-                "NaCl Concentration (M)": r["nacl_conc"],
-                "Run": r["run_name"],
-                "Equivalence X (raw)": r["eq_x"],
-                "Equivalence pH (raw)": r["eq_pH"],
-                "Equivalence QC Pass": r["eq_qc_pass"],
-                "Equivalence QC Reason": r["eq_qc_reason"],
-                "Equivalence X (used)": r["veq_used"],
-                "Equivalence Method": r["veq_method"],
-                "Equivalence Uncertainty": r["veq_uncertainty"],
-                "Half-Equivalence X": r["half_eq_x"],
-                "Half-Equivalence pH (pKa_half)": r["half_eq_pH"],
-                "pKa (buffer regression)": r["pka_reg"],
-                "pKa Regression Slope": r["slope_reg"],
-                "pKa Regression R2": r["r2_reg"],
-                "pKa Uncertainty": r["pka_uncertainty"],
-                "HH Veq Fit": r["hh_fit"]["veq_fit"],
-                "HH pKa Fit": r["hh_fit"]["pka_fit"],
-                "HH Slope Fit": r["hh_fit"]["slope_fit"],
-                "HH Fit Quality": r["hh_fit"]["fit_quality"],
-                "X Variable": "Volume (cm³)" if r["x_col"] == "Volume (cm³)" else "Time (min)",
+                "Run": res.get("run_name"),
+                "NaCl Concentration (M)": res.get("nacl_conc", np.nan),
+                "pKa (buffer regression)": res.get("pka_reg", np.nan),
+                "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
+                "Veq (used)": res.get("veq_used", np.nan),
+                "Source File": res.get("source_file", ""),
             }
-            for r in results
-        ]
-    )
-    return results_df
+        )
+    return pd.DataFrame(rows)
 
 
 def calculate_statistics(results_df):
-    """
-    Calculate statistical summaries of the results.
-
-    Args:
-        results_df (pd.DataFrame): Results DataFrame from create_results_dataframe.
-
-    Returns:
-        pd.DataFrame: Statistical summary with mean, SD, SEM, and count.
-    """
-    stats_df = (
-        results_df.groupby("NaCl Concentration (M)")["pKa (buffer regression)"]
-        .agg([("Mean pKa", "mean"), ("SD", "std"), ("n", "count")])
-        .reset_index()
-    )
-
-    stats_df["SEM"] = stats_df["SD"] / np.sqrt(stats_df["n"])
-    stats_df["t_critical"] = stats_df["n"].apply(
-        lambda n: student_t.ppf(0.975, df=n - 1) if HAVE_SCIPY and n > 1 else 1.96
-    )
-    stats_df["CI95"] = stats_df["t_critical"] * stats_df["SEM"]
-
-    return stats_df
+    """Compute group-level statistics (mean, SD, n) for pKa by NaCl concentration."""
+    if results_df.empty:
+        return pd.DataFrame(
+            columns=["NaCl Concentration (M)", "Mean pKa", "SD", "n"]
+        )
+    grp = results_df.groupby("NaCl Concentration (M)")["pKa (buffer regression)"]
+    stats = grp.agg(["mean", "std", "count"]).reset_index()
+    stats = stats.rename(columns={"mean": "Mean pKa", "std": "SD", "count": "n"})
+    return stats.sort_values("NaCl Concentration (M)").reset_index(drop=True)
 
 
 def print_statistics(stats_df, results_df):
-    """
-    Print statistical summary to console.
-
-    Args:
-        stats_df (pd.DataFrame): Statistical summary DataFrame.
-        results_df (pd.DataFrame): Individual results DataFrame.
-
-    Returns:
-        None
-    """
-    print("\n=== Statistical Summary ===")
-    print(stats_df.to_string(index=False))
-    print("\nIndividual Measurements:")
-    for conc in stats_df["NaCl Concentration (M)"]:
+    """Print a concise statistical summary to stdout."""
+    print("\nStatistical summary by NaCl concentration:")
+    if stats_df.empty:
+        print("  (no data)")
+        return
+    for _, row in stats_df.iterrows():
+        conc = row["NaCl Concentration (M)"]
+        mean = row["Mean pKa"]
+        sd = row["SD"]
+        n = int(row["n"])
+        sd_str = f"{sd:.3f}" if pd.notna(sd) else "N/A"
+        print(f" - {conc} M: mean={mean:.3f} SD={sd_str} n={n}")
         subset = results_df[results_df["NaCl Concentration (M)"] == conc]
-        print(f"\n{conc} M NaCl:")
-        for _, row in subset.iterrows():
-            print(
-                "  {run}: pKa_reg = {pka:.4f} (QC: {qc})".format(
-                    run=row["Run"],
-                    pka=row["pKa (buffer regression)"],
-                    qc="PASS" if row["Equivalence QC Pass"] else "FAIL",
-                )
-            )
-
-
-def self_check(sample_csv):
-    """Run a lightweight self-check on a sample CSV file."""
-
-    df_raw = load_titration_data(sample_csv)
-    runs = extract_runs(df_raw)
-    for run_name, run_info in runs.items():
-        run_df = run_info["df"]
-        analysis = analyze_titration(run_df, run_name, x_col=run_info["x_col"])
-        if analysis.get("skip_reason"):
-            print(f"Skipping {run_name}: {analysis['skip_reason']}")
-            continue
-        print(f"\nSelf-check for {run_name}")
-        print(f"  Veq (derivative): {analysis['eq_x']:.3f}")
-        print(f"  Veq (HH fit): {analysis['hh_fit']['veq_fit']:.3f}")
-        print(
-            f"  QC: {'PASS' if analysis['eq_qc_pass'] else 'FAIL'} "
-            f"({analysis['eq_qc_reason']})"
-        )
-        print(f"  pKa (regression): {analysis['pka_reg']:.3f}")
-        print(f"  pKa (half-eq): {analysis['pka_half']:.3f}")
-        print(f"  HH slope fit: {analysis['hh_fit']['slope_fit']:.3f}")
+        for _, r in subset.iterrows():
+            pka = r.get("pKa (buffer regression)")
+            qc = r.get("Equivalence QC Pass")
+            print(f"     {r['Run']}: pKa={pka:.3f} (QC: {qc})")

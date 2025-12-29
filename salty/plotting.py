@@ -3,6 +3,7 @@ Plotting module for titration analysis.
 """
 
 import os
+import re
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -142,19 +143,21 @@ def plot_titration_curves(results, output_dir="output"):
         ax2.spines["top"].set_visible(False)
         ax2.spines["right"].set_visible(False)
 
-        ax3.plot(
-            res["buffer_region"]["log10_ratio"],
-            res["buffer_region"]["pH_step"],
-            "o",
-            color=color,
-            label="Buffer region",
-            markersize=6,
-            clip_on=False,
-        )
-        if not res["buffer_region"].empty:
+        buffer_df = res.get("buffer_region", pd.DataFrame())
+        if not buffer_df.empty and {"log10_ratio", "pH_step"}.issubset(buffer_df.columns):
             ax3.plot(
-                res["buffer_region"]["log10_ratio"],
-                res["buffer_region"]["pH_fit"],
+                buffer_df["log10_ratio"],
+                buffer_df["pH_step"],
+                "o",
+                color=color,
+                label="Buffer region",
+                markersize=6,
+                clip_on=False,
+            )
+        if not buffer_df.empty and {"log10_ratio", "pH_fit"}.issubset(buffer_df.columns):
+            ax3.plot(
+                buffer_df["log10_ratio"],
+                buffer_df["pH_fit"],
                 "-",
                 color="black",
                 linewidth=2,
@@ -191,7 +194,11 @@ def plot_titration_curves(results, output_dir="output"):
         ax3.spines["right"].set_visible(False)
 
         plt.tight_layout(w_pad=3.0)
-        sanitized_name = run_name.replace(" ", "_").replace("/", "_")
+        source_file = res.get("source_file", "")
+        source_base = os.path.splitext(source_file)[0] if source_file else ""
+        combined_name = f"{run_name}_{source_base}" if source_base else run_name
+        # Sanitize to filesystem-friendly name
+        sanitized_name = re.sub(r'[^A-Za-z0-9._-]+', '_', combined_name)
         output_path = os.path.join(output_dir, f"titration_curve_{sanitized_name}.png")
         fig.savefig(output_path, dpi=300, bbox_inches="tight")
         print(f"Saved titration curve to {output_path}")

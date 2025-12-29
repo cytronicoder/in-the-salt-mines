@@ -2,19 +2,10 @@
 Handles CSV parsing, run extraction, and derivative calculations.
 """
 
-# Current (legacy) algorithm summary for context and documentation:
-# - CSV parsing: load wide Logger Pro exports; each "Run X" has time, pH,
-#   and cumulative volume columns.
-# - Volume forward-fill: after dropping empty rows, forward-fill the manually
-#   entered cumulative volume so each pH reading has a paired volume.
-# - Deduping strategy: sort by the independent variable and drop duplicates,
-#   keeping only the last reading at each volume/time value.
-# - Smoothing: apply a Savitzky–Golay filter with fixed window/polyorder.
-# - Derivatives: compute dpH/dx and d2pH/dx2 using numpy gradient on the
-#   smoothed trace.
-# - Equivalence point detection: take the maximum dpH/dx as Veq.
-# - pKa extraction: interpolate the smoothed pH at half-equivalence (Veq/2).
-# - Summary stats: group pKa by NaCl concentration and report mean/SD/SEM.
+# Algorithm summary: parse wide Logger Pro CSVs, forward-fill cumulative
+# volume, aggregate step-wise median pH values, optionally smooth with
+# Savitzky–Golay when available, and compute derivatives for equivalence
+# detection and pKa estimation.
 
 import importlib.util
 
