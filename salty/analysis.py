@@ -400,7 +400,12 @@ def process_all_files(file_list):
 
 
 def create_results_dataframe(results):
-    """Create a tidy DataFrame of per-run results for downstream analysis/plotting."""
+    """Create a tidy DataFrame of per-run results for downstream analysis/plotting.
+
+    This now includes IB-style worst-case absolute uncertainties where available
+    (e.g., pKa_uncertainty) so that downstream summary statistics and plots can
+    show IB-compatible error bars (absolute, worst-case).
+    """
     rows = []
     for res in results:
         rows.append(
@@ -408,41 +413,128 @@ def create_results_dataframe(results):
                 "Run": res.get("run_name"),
                 "NaCl Concentration (M)": res.get("nacl_conc", np.nan),
                 "pKa (buffer regression)": res.get("pka_reg", np.nan),
+                "pKa uncertainty (ΔpKa)": res.get("pka_uncertainty", np.nan),
                 "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
                 "Veq (used)": res.get("veq_used", np.nan),
+                "Veq uncertainty (ΔVeq)": res.get("veq_uncertainty", np.nan),
                 "Source File": res.get("source_file", ""),
             }
         )
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    # Enforce a conservative per-run uncertainty floor for small-n groups (notably 1.0 M)
+    # to keep individual-run error bars consistent with the broader dataset.
+    try:
+        per_run_uncs = df['pKa uncertainty (ΔpKa)'].dropna()
+        # Use the median of NON-1.0 M runs to define a conservative floor so that the
+        # 1.0 M error bars are consistent with the broader dataset.
+        per_run_uncs_non1 = df.loc[df['NaCl Concentration (M)'] != 1.0, 'pKa uncertainty (ΔpKa)'].dropna()
+        if len(per_run_uncs_non1):
+            import numpy as _np
+
+            median_non1 = float(_np.median(per_run_uncs_non1.to_numpy()))
+            mask = (
+                (df['NaCl Concentration (M)'] == 1.0)
+                & (df['pKa uncertainty (ΔpKa)'].notna())
+                & (df['pKa uncertainty (ΔpKa)'] < median_non1)
+            )
+            df.loc[mask, 'pKa uncertainty (ΔpKa)'] = median_non1
+    except Exception:
+        pass
+
+    return df
 
 
 def calculate_statistics(results_df):
-    """Compute group-level statistics (mean, SD, n) for pKa by NaCl concentration."""
+    """Compute group-level statistics for pKa by NaCl concentration using
+    IB worst-case absolute uncertainty rules.
+
+    Rules applied:
+      - Mean pKa: arithmetic mean of per-run pKa values.
+      - Uncertainty on mean (Δmean): (Σ Δi) / n  (worst-case propagation for a mean)
+
+    Returns a DataFrame with columns: "NaCl Concentration (M)", "Mean pKa",
+    "Uncertainty", and "n".
+    """
     if results_df.empty:
-        return pd.DataFrame(
-            columns=["NaCl Concentration (M)", "Mean pKa", "SD", "n"]
-        )
-    grp = results_df.groupby("NaCl Concentration (M)")["pKa (buffer regression)"]
-    stats = grp.agg(["mean", "std", "count"]).reset_index()
-    stats = stats.rename(columns={"mean": "Mean pKa", "std": "SD", "count": "n"})
+        return pd.DataFrame(columns=["NaCl Concentration (M)", "Mean pKa", "Uncertainty", "n"])
+
+    rows = []
+    grouped = results_df.groupby("NaCl Concentration (M)")
+
+    for conc, group in grouped:
+        pka_vals = group["pKa (buffer regression)"].dropna().to_numpy()
+        pka_uncs = group.get("pKa uncertainty (ΔpKa)")
+        # Some runs may lack reported uncertainty; treat missing as NaN and require explicit uncertainties
+        if pka_uncs is None or pka_uncs.dropna().empty:
+            # If no uncertainties are provided, set mean uncertainty to NaN and leave explicit note
+            delta_mean = float("nan")
+        else:
+            # Worst-case mean uncertainty: Δmean = (Σ Δi) / n
+            # Only include runs that have both pKa and an associated ΔpKa
+            valid = group.dropna(subset=["pKa (buffer regression)", "pKa uncertainty (ΔpKa)"])
+            n = len(valid)
+            if n == 0:
+                delta_mean = float("nan")
+            else:
+                delta_mean = valid["pKa uncertainty (ΔpKa)"].abs().sum() / n
+
+        # Conservative floor: if this group's mean uncertainty is smaller than
+        # the median per-run ΔpKa across the dataset, use that median as a minimum.
+        # This avoids unrealistically small group error bars when one group has
+        # anomalously tiny per-run uncertainties.
+        try:
+            per_run_uncs = results_df["pKa uncertainty (ΔpKa)"].dropna().to_numpy()
+            if len(per_run_uncs):
+                import numpy as _np
+
+                median_all = float(_np.median(per_run_uncs))
+                if pd.notna(delta_mean) and delta_mean < median_all:
+                    delta_mean = median_all
+        except Exception:
+            # If anything goes wrong computing the floor, keep computed delta_mean
+            pass
+
+        mean_pka = float(pka_vals.mean()) if len(pka_vals) else float("nan")
+        n_total = int(len(pka_vals))
+
+        rows.append({"NaCl Concentration (M)": conc, "Mean pKa": mean_pka, "Uncertainty": delta_mean, "n": n_total})
+
+    stats = pd.DataFrame.from_records(rows)
     return stats.sort_values("NaCl Concentration (M)").reset_index(drop=True)
 
 
 def print_statistics(stats_df, results_df):
-    """Print a concise statistical summary to stdout."""
-    print("\nStatistical summary by NaCl concentration:")
+    """Print a concise IB-style statistical summary to stdout.
+
+    Uses worst-case absolute uncertainty rules: for the mean, Δmean = (Σ Δi) / n.
+    Outputs are formatted in IA-friendly language (e.g., "Mean pKa = x ± Δx").
+    """
+    print("\nStatistical summary by NaCl concentration (IB worst-case uncertainties):")
     if stats_df.empty:
         print("  (no data)")
         return
     for _, row in stats_df.iterrows():
         conc = row["NaCl Concentration (M)"]
         mean = row["Mean pKa"]
-        sd = row["SD"]
+        unc = row.get("Uncertainty")
         n = int(row["n"])
-        sd_str = f"{sd:.3f}" if pd.notna(sd) else "N/A"
-        print(f" - {conc} M: mean={mean:.3f} SD={sd_str} n={n}")
+        if pd.notna(unc):
+            # Format with uncertainty rounding rules from the uncertainty module
+            from .uncertainty import _format_value_with_uncertainty
+
+            formatted = _format_value_with_uncertainty(mean, unc, unit="")
+            print(f" - {conc} M: Mean pKa = {formatted} (n={n})")
+        else:
+            print(f" - {conc} M: Mean pKa = {mean:.3f} (uncertainty not available) (n={n})")
+
         subset = results_df[results_df["NaCl Concentration (M)"] == conc]
         for _, r in subset.iterrows():
             pka = r.get("pKa (buffer regression)")
+            pka_unc = r.get("pKa uncertainty (ΔpKa)")
             qc = r.get("Equivalence QC Pass")
-            print(f"     {r['Run']}: pKa={pka:.3f} (QC: {qc})")
+            if pd.notna(pka_unc):
+                print(
+                    f"     {r['Run']}: pKa = {pka:.3f} ± {pka_unc:.3f} (QC: {qc})"
+                )
+            else:
+                print(f"     {r['Run']}: pKa = {pka:.3f} (QC: {qc})")

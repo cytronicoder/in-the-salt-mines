@@ -21,6 +21,12 @@ from .analysis import (
     print_statistics,
     process_all_files,
 )
+from .uncertainty import (
+    add_subtract,
+    mul_div,
+    power,
+    uncertainty_for_equipment,
+)
 from .data_processing import calculate_derivatives, extract_runs, load_titration_data
 from .plotting import (
     plot_statistical_summary,
