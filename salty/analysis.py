@@ -294,7 +294,20 @@ def analyze_titration(df, run_name, x_col="Volume (cm³)"):
     veq_used = veq_deriv if np.isfinite(veq_deriv) else hh_fit["veq_fit"]
     veq_method = "derivative" if np.isfinite(veq_deriv) else "HH_fit"
 
-    buffer_fit = fit_buffer_region(step_df, veq_used) if np.isfinite(veq_used) else {}
+    # Ensure buffer_fit always has the expected keys, even when veq_used is invalid
+    default_buffer_fit = {
+        "pka_reg": np.nan,
+        "slope_reg": np.nan,
+        "r2": np.nan,
+        "buffer_df": pd.DataFrame(),
+    }
+    if np.isfinite(veq_used):
+        raw_buffer_fit = fit_buffer_region(step_df, veq_used)
+        buffer_fit = default_buffer_fit.copy()
+        if isinstance(raw_buffer_fit, dict):
+            buffer_fit.update(raw_buffer_fit)
+    else:
+        buffer_fit = default_buffer_fit
     half_eq_x = veq_used / 2 if np.isfinite(veq_used) else np.nan
     half_eq_pH = (
         float(interpolator["func"](half_eq_x))
