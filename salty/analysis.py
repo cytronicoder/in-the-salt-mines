@@ -1,9 +1,9 @@
 """
 DP Chemistry SL titration analysis.
 
-This module analyzes weak acid–strong base titration data to estimate:
+This module analyzes weak acid-strong base titration data to estimate:
 - Equivalence volume (V_eq) from the maximum of d(pH)/dV (inflection point).
-- Apparent pK_a from Henderson–Hasselbalch buffer-region linear regression:
+- Apparent pK_a from Henderson-Hasselbalch buffer-region linear regression:
     pH = m * log10(V / (V_eq - V)) + b, where b ≈ pK_a.
   The regression is performed for every run (no slope/R^2 gating). Slope and R^2 are reported
   as diagnostics only.

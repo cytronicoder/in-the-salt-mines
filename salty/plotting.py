@@ -1,5 +1,5 @@
 """
-Plotting module for titration analysis (IB IA–standard, interpretability-first).
+Plotting module for titration analysis (IB IA-standard, interpretability-first).
 
 Updates in this revision:
 - Any units containing powers/subscripts/superscripts are LaTeX-wrapped so Matplotlib renders them correctly:
@@ -199,12 +199,12 @@ def setup_plot_style():
 # ----------------------------
 
 
-def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> List[str]:
+def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_raw_pH: bool = False) -> List[str]:
     """
     For each run, saves ONE black-and-white figure with 3 panels:
     (1) pH vs Volume (with xerr and yerr) + PCHIP interpolation
     (2) First derivative vs Volume
-    (3) Henderson–Hasselbalch diagnostic (scatter + best-fit + eqn/R² bottom-right)
+    (3) Henderson-Hasselbalch diagnostic (scatter + best-fit + eqn/R² bottom-right)
 
     Returns list of PNG paths.
     """
@@ -240,7 +240,7 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> Li
         )
 
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.8))
-        fig.suptitle(run_name, fontweight="bold", fontsize=32, y=0.965)
+        fig.suptitle(run_name, fontweight="bold", fontsize=32, y=0.90)
 
         # -------------------------
         # (1) Titration curve
@@ -252,21 +252,22 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> Li
         x_raw = pd.to_numeric(raw_df[x_col], errors="coerce").to_numpy(dtype=float)
         y_raw = pd.to_numeric(raw_df["pH"], errors="coerce").to_numpy(dtype=float)
 
-        ax1.errorbar(
-            x_raw,
-            y_raw,
-            xerr=(delivered_unc if is_volume else None),
-            yerr=ph_unc,
-            fmt="o",
-            markersize=6,
-            markerfacecolor="white",
-            markeredgecolor="black",
-            ecolor=ecolor_bar,
-            elinewidth=1.6,
-            capsize=4,
-            alpha=1.0,  # markers opaque; bars/caps use RGBA ecolor for transparency
-            label="Measurements",
-        )
+        if show_raw_pH:
+            ax1.errorbar(
+                x_raw,
+                y_raw,
+                xerr=(delivered_unc if is_volume else None),
+                yerr=ph_unc,
+                fmt="o",
+                markersize=6,
+                markerfacecolor="white",
+                markeredgecolor="black",
+                ecolor=ecolor_bar,
+                elinewidth=1.6,
+                capsize=4,
+                alpha=1.0,  # markers opaque; bars/caps use RGBA ecolor for transparency
+                label="Measurements",
+            )
 
         x_smooth, y_smooth = _titration_interpolated_curve(
             x_raw, y_raw, n_points=900 if is_volume else 600
@@ -353,7 +354,7 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> Li
         ax2.legend(loc="best")
 
         # -------------------------
-        # (3) Henderson–Hasselbalch diagnostic
+        # (3) Henderson-Hasselbalch diagnostic
         # -------------------------
         if not buffer_df.empty and {"log10_ratio", "pH_step"}.issubset(
             buffer_df.columns
@@ -400,7 +401,7 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> Li
                     fontsize=14,
                 )
 
-        ax3.set_title("Henderson–Hasselbalch", fontweight="bold")
+        ax3.set_title("Henderson-Hasselbalch", fontweight="bold")
         ax3.set_xlabel(r"$\log_{10}\!\left(\frac{V}{V_{eq}-V}\right)$")
         ax3.set_ylabel("pH")
         ax3.yaxis.set_major_locator(MaxNLocator(nbins=7))

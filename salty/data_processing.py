@@ -1,5 +1,5 @@
 """
-CSV parsing and stepwise titration data processing (DP Chemistry SL–aligned).
+CSV parsing and stepwise titration data processing (DP Chemistry SL-aligned).
 
 This module:
 - Extracts Logger Pro "Run X: ..." wide-format exports into tidy per-run DataFrames.

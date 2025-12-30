@@ -1,0 +1,5 @@
+Data coverage issues detected:
+ - 0.8 M has only 2 valid runs (n<3)
+     0.8M - Run 2: pKa=5.085753882489043 (QC: True)
+     0.8M - Run 1: pKa=nan (QC: False)
+     0.8M - Run 3: pKa=5.117472631018755 (QC: True)
