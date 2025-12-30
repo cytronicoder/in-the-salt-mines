@@ -1,60 +1,211 @@
 """
-Analyzing titration data and finding equivalence points.
+DP Chemistry SL titration analysis.
+
+This module analyzes weak acid–strong base titration data to estimate:
+- Equivalence volume (V_eq) from the maximum of d(pH)/dV (inflection point).
+- Apparent pK_a from Henderson–Hasselbalch buffer-region linear regression:
+    pH = m * log10(V / (V_eq - V)) + b, where b ≈ pK_a.
+  The regression is performed for every run (no slope/R^2 gating). Slope and R^2 are reported
+  as diagnostics only.
+
+Interpolation (PCHIP if available; otherwise linear) is used to:
+- Produce a smooth curve for plotting.
+- Estimate pH at half-equivalence (reported as an additional DP reference value).
+
+Uncertainties (IB-defensible, simple):
+- ΔV_eq from burette uncertainty and half the median volume step (quadrature).
+- ΔpK_a from regression intercept uncertainty (95% CI if available, else SE), V_eq sensitivity,
+  and optional pH systematic offset. If regression cannot be performed, ΔpK_a is estimated from
+  half-equivalence sensitivity plus pH meter terms.
+
+All reported pK_a values should be treated as apparent pK_a (ionic strength/activity effects can shift values).
 """
 
+from __future__ import annotations
+
 import importlib.util
+import os
+from typing import Dict, Tuple
+
 import numpy as np
 import pandas as pd
-import os
 
-from .data_processing import (
-    aggregate_volume_steps,
-    calculate_derivatives,
-    extract_runs,
-    load_titration_data,
-)
+from .data_processing import aggregate_volume_steps, extract_runs, load_titration_data
 
 HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
 if HAVE_SCIPY:
     from scipy.interpolate import PchipInterpolator
-    from scipy.optimize import curve_fit
     from scipy.stats import t as student_t
 
+    try:
+        from scipy.signal import savgol_filter
 
-def build_ph_interpolator(step_df, method="linear"):
-    """Build a pH(V) interpolator using step-level medians."""
+        _HAVE_SAVGOL = True
+    except Exception:
+        savgol_filter = None
+        _HAVE_SAVGOL = False
 
-    if step_df.empty:
-        return {"method": "linear", "func": lambda x: np.full_like(x, np.nan)}
 
-    x = step_df["Volume (cm³)"].to_numpy()
-    y = step_df["pH_step"].to_numpy()
+DEFAULT_BURETTE_UNC = 0.05
+DEFAULT_PH_METER_SYS = 0.00
+DEFAULT_PH_METER_RAND = 0.20
+
+
+def _linear_regression_with_uncertainty(
+    x: np.ndarray, y: np.ndarray
+) -> Dict[str, float]:
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+    n = int(len(x))
+    if n < 3:
+        return {
+            "m": np.nan,
+            "b": np.nan,
+            "r2": np.nan,
+            "se_m": np.nan,
+            "se_b": np.nan,
+            "ci95_b": np.nan,
+        }
+
+    m, b = np.polyfit(x, y, 1)
+    yhat = m * x + b
+    resid = y - yhat
+
+    sse = float(np.sum(resid**2))
+    sst = float(np.sum((y - y.mean()) ** 2))
+    r2 = 1.0 - sse / sst if sst > 0 else np.nan
+
+    dof = n - 2
+    if dof <= 0:
+        return {
+            "m": float(m),
+            "b": float(b),
+            "r2": float(r2),
+            "se_m": np.nan,
+            "se_b": np.nan,
+            "ci95_b": np.nan,
+        }
+
+    s2 = sse / dof
+    xbar = float(np.mean(x))
+    ssxx = float(np.sum((x - xbar) ** 2))
+    if ssxx <= 0:
+        return {
+            "m": float(m),
+            "b": float(b),
+            "r2": float(r2),
+            "se_m": np.nan,
+            "se_b": np.nan,
+            "ci95_b": np.nan,
+        }
+
+    se_m = float(np.sqrt(s2 / ssxx))
+    se_b = float(np.sqrt(s2 * (1.0 / n + (xbar**2) / ssxx)))
+
+    ci95_b = np.nan
+    if HAVE_SCIPY:
+        try:
+            tcrit = float(student_t.ppf(0.975, dof))
+            ci95_b = float(tcrit * se_b)
+        except Exception:
+            ci95_b = np.nan
+
+    return {
+        "m": float(m),
+        "b": float(b),
+        "r2": float(r2),
+        "se_m": se_m,
+        "se_b": se_b,
+        "ci95_b": ci95_b,
+    }
+
+
+def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+    if len(x) == 0:
+        return x, y
+    order = np.argsort(x)
+    x = x[order]
+    y = y[order]
+    if len(np.unique(x)) < len(x):
+        df = pd.DataFrame({"x": x, "y": y}).groupby("x", as_index=False).mean()
+        x = df["x"].to_numpy(dtype=float)
+        y = df["y"].to_numpy(dtype=float)
+    return x, y
+
+
+def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> Dict:
+    if (
+        step_df.empty
+        or "Volume (cm³)" not in step_df.columns
+        or "pH_step" not in step_df.columns
+    ):
+        return {
+            "method": "linear",
+            "func": lambda x: np.full_like(np.asarray(x, dtype=float), np.nan),
+        }
+
+    x = step_df["Volume (cm³)"].to_numpy(dtype=float)
+    y = step_df["pH_step"].to_numpy(dtype=float)
+    x, y = _prepare_xy(x, y)
+
+    if len(x) < 2:
+        return {
+            "method": "linear",
+            "func": lambda xq: np.full_like(np.asarray(xq, dtype=float), np.nan),
+        }
+
     x_min = float(np.min(x))
     x_max = float(np.max(x))
 
-    if method == "pchip" and HAVE_SCIPY:
-        interpolator = PchipInterpolator(x, y, extrapolate=False)
+    if method is None:
+        method = "pchip" if HAVE_SCIPY else "linear"
 
-        def interp_func(xq):
-            xq_arr = np.atleast_1d(xq)
-            yq = interpolator(xq_arr)
-            return yq[0] if np.ndim(xq) == 0 else yq
+    if method == "pchip" and HAVE_SCIPY and len(x) >= 3:
+        interp = PchipInterpolator(x, y, extrapolate=False)
+        d_interp = interp.derivative()
 
-        return {"method": "pchip", "func": interp_func, "x_min": x_min, "x_max": x_max}
+        def f(xq):
+            xq_arr = np.atleast_1d(np.asarray(xq, dtype=float))
+            yq = np.asarray(interp(xq_arr), dtype=float)
+            out = (xq_arr < x_min) | (xq_arr > x_max)
+            yq[out] = np.nan
+            return float(yq[0]) if np.ndim(xq) == 0 else yq
 
-    def interp_func(xq):
-        xq_arr = np.atleast_1d(xq)
+        def df(xq):
+            xq_arr = np.atleast_1d(np.asarray(xq, dtype=float))
+            yq = np.asarray(d_interp(xq_arr), dtype=float)
+            out = (xq_arr < x_min) | (xq_arr > x_max)
+            yq[out] = np.nan
+            return float(yq[0]) if np.ndim(xq) == 0 else yq
+
+        return {
+            "method": "pchip",
+            "func": f,
+            "deriv_func": df,
+            "x_min": x_min,
+            "x_max": x_max,
+        }
+
+    def f(xq):
+        xq_arr = np.atleast_1d(np.asarray(xq, dtype=float))
         yq = np.interp(xq_arr, x, y)
-        mask = (xq_arr < x_min) | (xq_arr > x_max)
-        yq[mask] = np.nan
-        return yq[0] if np.ndim(xq) == 0 else yq
+        out = (xq_arr < x_min) | (xq_arr > x_max)
+        yq = np.asarray(yq, dtype=float)
+        yq[out] = np.nan
+        return float(yq[0]) if np.ndim(xq) == 0 else yq
 
-    return {"method": "linear", "func": interp_func, "x_min": x_min, "x_max": x_max}
+    return {"method": "linear", "func": f, "x_min": x_min, "x_max": x_max}
 
 
-def generate_dense_curve(interpolator, n_points=400):
-    """Generate a dense pH(V) curve for plotting and derivatives."""
-
+def generate_dense_curve(interpolator: Dict, n_points: int = 1200) -> pd.DataFrame:
     if "x_min" not in interpolator or "x_max" not in interpolator:
         return pd.DataFrame(columns=["Volume (cm³)", "pH_interp"])
     x_dense = np.linspace(interpolator["x_min"], interpolator["x_max"], n_points)
@@ -62,312 +213,474 @@ def generate_dense_curve(interpolator, n_points=400):
     return pd.DataFrame({"Volume (cm³)": x_dense, "pH_interp": y_dense})
 
 
-def detect_equivalence_point(step_df, edge_buffer=2, min_post_points=3, delta_pH=1.0):
-    """Locate equivalence point with QC guardrails."""
+def _smooth_ph_for_derivative(
+    step_df: pd.DataFrame, window: int = 7, poly: int = 2
+) -> pd.DataFrame:
+    if step_df.empty:
+        return step_df
 
-    if step_df.empty or "dpH/dx" not in step_df.columns:
-        return {"eq_x": np.nan, "eq_pH": np.nan, "qc_pass": False, "qc_reason": "Missing derivative"}
+    df = step_df.copy()
+    v = pd.to_numeric(df["Volume (cm³)"], errors="coerce").to_numpy(dtype=float)
+    p = pd.to_numeric(df["pH_step"], errors="coerce").to_numpy(dtype=float)
+    mask = np.isfinite(v) & np.isfinite(p)
 
-    idx = step_df["dpH/dx"].idxmax()
-    eq_x = float(step_df.loc[idx, "Volume (cm³)"])
-    eq_pH = float(step_df.loc[idx, "pH_smooth"])
+    p_smooth = np.full_like(p, np.nan, dtype=float)
+    pp = p[mask]
+
+    if len(pp) < 5:
+        p_smooth[mask] = pp
+    else:
+        w = int(window)
+        if w % 2 == 0:
+            w += 1
+        w = min(w, len(pp) if len(pp) % 2 == 1 else len(pp) - 1)
+        w = max(w, 5)
+
+        if HAVE_SCIPY and _HAVE_SAVGOL and w >= 5 and w <= len(pp):
+            try:
+                p_sg = savgol_filter(
+                    pp, window_length=w, polyorder=min(poly, w - 2), mode="interp"
+                )
+                p_smooth[mask] = p_sg
+            except Exception:
+                p_smooth[mask] = pp
+        else:
+            ser = pd.Series(pp)
+            p_rm = (
+                ser.rolling(window=w, center=True, min_periods=1)
+                .mean()
+                .to_numpy(dtype=float)
+            )
+            p_smooth[mask] = p_rm
+
+    df["pH_smooth"] = p_smooth
+    return df
+
+
+def _ensure_derivative(step_df: pd.DataFrame, use_smooth: bool = True) -> pd.DataFrame:
+    if step_df.empty:
+        return step_df
+
+    df = step_df.copy()
+    if "dpH/dx" in df.columns and df["dpH/dx"].notna().any():
+        return df
+
+    v = pd.to_numeric(df["Volume (cm³)"], errors="coerce").to_numpy(dtype=float)
+    col = "pH_smooth" if (use_smooth and "pH_smooth" in df.columns) else "pH_step"
+    p = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
+
+    mask = np.isfinite(v) & np.isfinite(p)
+    dp = np.full_like(p, np.nan, dtype=float)
+
+    if np.sum(mask) >= 3:
+        vv = v[mask]
+        pp = p[mask]
+        dp_local = np.gradient(pp, vv)
+        dp[mask] = dp_local
+
+    df["dpH/dx"] = dp
+    return df
+
+
+def _qc_equivalence(
+    step_df: pd.DataFrame,
+    peak_index: int,
+    edge_buffer: int = 2,
+    min_post_points: int = 3,
+) -> Tuple[bool, str]:
+    n = int(len(step_df))
     reasons = []
 
-    if idx <= edge_buffer or idx >= len(step_df) - 1 - edge_buffer:
+    if peak_index <= edge_buffer or peak_index >= n - 1 - edge_buffer:
         reasons.append("Peak too close to data edge")
-
-    if len(step_df) - idx - 1 < min_post_points:
+    if (n - peak_index - 1) < min_post_points:
         reasons.append("Insufficient post-equivalence coverage")
 
-    before_idx = max(idx - 2, 0)
-    after_idx = min(idx + 2, len(step_df) - 1)
-    delta_region = step_df.loc[after_idx, "pH_step"] - step_df.loc[before_idx, "pH_step"]
-    if delta_region < delta_pH:
-        reasons.append("pH rise across steep region below threshold")
+    pH_vals = pd.to_numeric(step_df["pH_step"], errors="coerce").to_numpy(dtype=float)
+    pH_f = pH_vals[np.isfinite(pH_vals)]
+    if len(pH_f) >= 3:
+        total_span = float(np.max(pH_f) - np.min(pH_f))
+        min_jump = max(0.5, 0.10 * total_span)
+        before_idx = max(int(peak_index) - 2, 0)
+        after_idx = min(int(peak_index) + 2, n - 1)
+        delta_region = float(
+            step_df.loc[after_idx, "pH_step"] - step_df.loc[before_idx, "pH_step"]
+        )
+        if not np.isfinite(delta_region) or delta_region < min_jump:
+            reasons.append("Steep-region pH change too small for a clear equivalence")
 
-    qc_pass = len(reasons) == 0
-    qc_reason = "OK" if qc_pass else "; ".join(reasons)
-
-    return {"eq_x": eq_x, "eq_pH": eq_pH, "qc_pass": qc_pass, "qc_reason": qc_reason}
-
-
-def _hh_model(volume, pka, veq):
-    return pka + np.log10(volume / (veq - volume))
-
-
-def _fit_hh_grid_search(volumes, ph_values, veq_candidates):
-    best = {"sse": np.inf, "veq": np.nan, "pka": np.nan, "slope": np.nan}
-    for veq in veq_candidates:
-        mask = volumes < veq
-        if np.sum(mask) < 3:
-            continue
-        v = volumes[mask]
-        y = ph_values[mask]
-        x = np.log10(v / (veq - v))
-        if not np.all(np.isfinite(x)):
-            continue
-        slope, intercept = np.polyfit(x, y, 1)
-        y_pred = intercept + slope * x
-        sse = np.sum((y - y_pred) ** 2)
-        if sse < best["sse"]:
-            best = {"sse": sse, "veq": veq, "pka": intercept, "slope": slope}
-    return best
+    ok = len(reasons) == 0
+    return ok, ("OK" if ok else "; ".join(reasons))
 
 
-def fit_henderson_hasselbalch(step_df):
-    """Rescue Veq/pKa via HH fit using pre-equivalence points only."""
-
-    volumes = step_df["Volume (cm³)"].to_numpy()
-    ph_values = step_df["pH_step"].to_numpy()
-    max_v = np.max(volumes) if len(volumes) else np.nan
-    if not np.isfinite(max_v) or len(volumes) < 5:
-        return {
-            "veq_fit": np.nan,
-            "pka_fit": np.nan,
-            "slope_fit": np.nan,
-            "fit_quality": np.nan,
-            "method": "grid",
-        }
-
-    lower = max_v * 0.6
-    upper = max_v * 1.5
-    candidates = np.linspace(lower, upper, 80)
-
-    if HAVE_SCIPY:
-        mask = volumes < max_v * 0.95
-        v = volumes[mask]
-        y = ph_values[mask]
-        if len(v) >= 3 and np.all(v > 0):
-            try:
-                popt, _ = curve_fit(
-                    _hh_model,
-                    v,
-                    y,
-                    p0=[np.median(y), max_v],
-                    bounds=([0.0, lower], [14.0, upper]),
-                )
-                pka_fit, veq_fit = popt
-                x = np.log10(v / (veq_fit - v))
-                slope, intercept = np.polyfit(x, y, 1)
-                y_pred = intercept + slope * x
-                sse = np.sum((y - y_pred) ** 2)
-                return {
-                    "veq_fit": float(veq_fit),
-                    "pka_fit": float(pka_fit),
-                    "slope_fit": float(slope),
-                    "fit_quality": float(sse),
-                    "method": "curve_fit",
-                }
-            except Exception:
-                pass
-
-    best = _fit_hh_grid_search(volumes, ph_values, candidates)
-    return {
-        "veq_fit": float(best["veq"]),
-        "pka_fit": float(best["pka"]),
-        "slope_fit": float(best["slope"]),
-        "fit_quality": float(best["sse"]),
-        "method": "grid",
-    }
-
-
-def fit_buffer_region(step_df, veq):
-    """Fit pH vs log10(V/(Veq-V)) in the buffer region to estimate pKa."""
-
-    volumes = step_df["Volume (cm³)"].to_numpy()
-    ph_values = step_df["pH_step"].to_numpy()
-    mask = (volumes > 0.2 * veq) & (volumes < 0.8 * veq) & (volumes < veq)
-    v = volumes[mask]
-    y = ph_values[mask]
-    if len(v) < 3:
-        return {
-            "pka_reg": np.nan,
-            "slope_reg": np.nan,
-            "r2": np.nan,
-            "n_points": 0,
-            "buffer_df": pd.DataFrame(columns=["Volume (cm³)", "log10_ratio", "pH_step"]),
-        }
-
-    x = np.log10(v / (veq - v))
-    slope, intercept = np.polyfit(x, y, 1)
-    y_pred = intercept + slope * x
-    sse = np.sum((y - y_pred) ** 2)
-    sst = np.sum((y - np.mean(y)) ** 2)
-    r2 = 1.0 - sse / sst if sst > 0 else np.nan
-
-    buffer_df = pd.DataFrame(
-        {"Volume (cm³)": v, "log10_ratio": x, "pH_step": y, "pH_fit": y_pred}
-    )
-
-    return {
-        "pka_reg": float(intercept),
-        "slope_reg": float(slope),
-        "r2": float(r2),
-        "n_points": int(len(v)),
-        "buffer_df": buffer_df,
-    }
-
-
-def estimate_uncertainties(step_df, veq_primary, veq_secondary, pka_reg):
-    """Estimate uncertainties using method spread and sensitivity checks."""
-
-    volumes = step_df["Volume (cm³)"].to_numpy()
-    delta_v = np.diff(volumes)
-    median_step = np.median(delta_v) if len(delta_v) else np.nan
-
-    if np.isfinite(veq_primary) and np.isfinite(veq_secondary):
-        veq_unc = 0.5 * abs(veq_primary - veq_secondary)
-    elif np.isfinite(median_step):
-        veq_unc = 0.5 * median_step
-    else:
-        veq_unc = np.nan
-
-    if (
-        np.isfinite(pka_reg)
-        and np.isfinite(veq_unc)
-        and np.isfinite(veq_primary)
-        and veq_primary >= 0.1
-    ):
-        pka_plus = fit_buffer_region(step_df, veq_primary + veq_unc)["pka_reg"]
-        pka_minus = fit_buffer_region(step_df, max(veq_primary - veq_unc, 0.1))[
-            "pka_reg"
-        ]
-        pka_unc = np.nanmax([abs(pka_plus - pka_reg), abs(pka_minus - pka_reg)])
-    else:
-        pka_unc = np.nan
-
-    return veq_unc, pka_unc
-
-
-def analyze_titration(df, run_name, x_col="Volume (cm³)"):
-    """Analyze a single titration run."""
-
-    step_df = aggregate_volume_steps(df)
+def detect_equivalence_point(
+    step_df: pd.DataFrame,
+    interpolator: Dict | None = None,
+    edge_buffer: int = 2,
+    min_post_points: int = 3,
+) -> Dict:
     if step_df.empty:
         return {
-            "run_name": run_name,
             "eq_x": np.nan,
             "eq_pH": np.nan,
-            "eq_qc_pass": False,
-            "eq_qc_reason": "No valid volume/pH data after aggregation",
-            "veq_used": np.nan,
-            "veq_method": None,
-            "veq_uncertainty": np.nan,
-            "half_eq_x": np.nan,
-            "half_eq_pH": np.nan,
-            "pka_reg": np.nan,
-            "slope_reg": np.nan,
-            "r2_reg": np.nan,
-            "pka_half": np.nan,
-            "pka_uncertainty": np.nan,
-            "hh_fit": {},
-            "x_col": x_col,
-            "data": df,
-            "step_data": step_df,
-            "dense_curve": {},
-            "buffer_region": pd.DataFrame(),
-            "diagnostics": {"interpolator_method": None, "step_points": 0},
-            "skip_reason": "No valid volume/pH data after aggregation",
+            "qc_pass": False,
+            "qc_reason": "No step data",
+            "method": None,
         }
 
-    step_df = calculate_derivatives(step_df, x_col="Volume (cm³)", ph_col="pH_step")
-    interpolator = build_ph_interpolator(step_df, method="linear")
-    dense_curve = generate_dense_curve(interpolator)
-
-    eq_info = detect_equivalence_point(step_df)
-    hh_fit = fit_henderson_hasselbalch(step_df)
-
-    veq_deriv = eq_info["eq_x"] if eq_info["qc_pass"] else np.nan
-    if np.isfinite(veq_deriv):
-        veq_used, veq_method = veq_deriv, "derivative"
-    elif np.isfinite(hh_fit.get("veq_fit", np.nan)):
-        veq_used, veq_method = hh_fit["veq_fit"], "HH_fit"
-    elif np.isfinite(eq_info.get("eq_x", np.nan)):
-        veq_used, veq_method = eq_info["eq_x"], "derivative_weak"
+    df = _ensure_derivative(step_df, use_smooth=True)
+    d = pd.to_numeric(df["dpH/dx"], errors="coerce")
+    if d.dropna().empty:
+        step_ok, step_reason = False, "Derivative all NaN"
+        eq_x_step = np.nan
     else:
-        veq_used, veq_method = np.nan, "unknown"
+        peak_idx = int(d.idxmax())
+        step_ok, step_reason = _qc_equivalence(
+            df, peak_idx, edge_buffer=edge_buffer, min_post_points=min_post_points
+        )
+        eq_x_step = float(df.loc[peak_idx, "Volume (cm³)"])
 
-    # ---- buffer-region pKa logic with rescue ----
-    default_buffer_fit = {
+    if np.isfinite(eq_x_step) and step_ok:
+        eq_pH = (
+            float(interpolator["func"](eq_x_step))
+            if (interpolator and "func" in interpolator)
+            else float(df.loc[int(d.idxmax()), "pH_step"])
+        )
+        return {
+            "eq_x": eq_x_step,
+            "eq_pH": eq_pH,
+            "qc_pass": True,
+            "qc_reason": "OK",
+            "method": "derivative_step",
+        }
+
+    if interpolator and ("x_min" in interpolator) and ("x_max" in interpolator):
+        x_dense = np.linspace(interpolator["x_min"], interpolator["x_max"], 2500)
+        if "deriv_func" in interpolator:
+            d_dense = interpolator["deriv_func"](x_dense)
+        else:
+            y_dense = interpolator["func"](x_dense)
+            d_dense = np.gradient(y_dense, x_dense)
+
+        d_dense = np.asarray(d_dense, dtype=float)
+        mask = np.isfinite(d_dense)
+        if np.any(mask):
+            idx = int(np.nanargmax(d_dense))
+            eq_x = float(x_dense[idx])
+            eq_pH = float(interpolator["func"](eq_x))
+            bound_buffer = 0.05 * (interpolator["x_max"] - interpolator["x_min"])
+            reasons = []
+            if (eq_x - interpolator["x_min"]) < bound_buffer or (
+                interpolator["x_max"] - eq_x
+            ) < bound_buffer:
+                reasons.append("Dense peak too close to bounds")
+            if not step_df.empty:
+                nearest_idx = int(
+                    np.nanargmin(
+                        np.abs(step_df["Volume (cm³)"].to_numpy(dtype=float) - eq_x)
+                    )
+                )
+                ok2, reason2 = _qc_equivalence(
+                    step_df,
+                    nearest_idx,
+                    edge_buffer=edge_buffer,
+                    min_post_points=min_post_points,
+                )
+                if not ok2 and reason2 != "OK":
+                    reasons.append(reason2)
+            qc_pass = len(reasons) == 0
+            return {
+                "eq_x": eq_x,
+                "eq_pH": eq_pH,
+                "qc_pass": qc_pass,
+                "qc_reason": ("OK" if qc_pass else "; ".join(reasons)),
+                "method": "derivative_dense",
+            }
+
+    if np.isfinite(eq_x_step):
+        eq_pH = (
+            float(interpolator["func"](eq_x_step))
+            if (interpolator and "func" in interpolator)
+            else float(df.loc[int(d.idxmax()), "pH_step"])
+        )
+        return {
+            "eq_x": eq_x_step,
+            "eq_pH": eq_pH,
+            "qc_pass": False,
+            "qc_reason": step_reason,
+            "method": "derivative_step_weak",
+        }
+
+    return {
+        "eq_x": np.nan,
+        "eq_pH": np.nan,
+        "qc_pass": False,
+        "qc_reason": "Equivalence not found",
+        "method": None,
+    }
+
+
+def fit_buffer_region(
+    step_df: pd.DataFrame, veq: float, window: Tuple[float, float] = (0.2, 0.8)
+) -> Dict:
+    out = {
         "pka_reg": np.nan,
         "slope_reg": np.nan,
         "r2": np.nan,
         "n_points": 0,
-        "buffer_df": pd.DataFrame(),
+        "se_intercept": np.nan,
+        "ci95_intercept": np.nan,
+        "buffer_df": pd.DataFrame(
+            columns=["Volume (cm³)", "log10_ratio", "pH_step", "pH_fit"]
+        ),
+        "window": window,
     }
 
-    if np.isfinite(veq_used):
-        buffer_fit = default_buffer_fit.copy()
-        buffer_fit.update(fit_buffer_region(step_df, veq_used))
-    else:
-        buffer_fit = default_buffer_fit.copy()
+    if not np.isfinite(veq) or veq <= 0 or step_df.empty:
+        return out
 
-    if np.isfinite(veq_used):
-        try:
-            if buffer_fit["n_points"] < 3 or not np.isfinite(buffer_fit["pka_reg"]):
-                for factor in (0.85, 0.9, 0.95, 1.05, 1.1):
-                    bf = fit_buffer_region(step_df, veq_used * factor)
-                    if bf["n_points"] >= 3 and np.isfinite(bf["pka_reg"]):
-                        buffer_fit = bf
-                        break
+    volumes = step_df["Volume (cm³)"].to_numpy(dtype=float)
+    ph_values = step_df["pH_step"].to_numpy(dtype=float)
 
-            half_eq_x = veq_used / 2
-            half_eq_pH = float(interpolator["func"](half_eq_x))
-            if buffer_fit["n_points"] < 3 and np.isfinite(half_eq_pH):
-                buffer_fit = {
-                    "pka_reg": half_eq_pH,
-                    "slope_reg": np.nan,
-                    "r2": np.nan,
-                    "n_points": 1,
-                    "buffer_df": pd.DataFrame(
-                        {"Volume (cm³)": [half_eq_x], "pH_step": [half_eq_pH]}
-                    ),
-                }
-        except Exception:
-            pass
-
-    pka_reg = buffer_fit["pka_reg"]
-    if not np.isfinite(pka_reg) and np.isfinite(hh_fit.get("pka_fit", np.nan)):
-        pka_reg = hh_fit["pka_fit"]
-
-    half_eq_x = veq_used / 2 if np.isfinite(veq_used) else np.nan
-    half_eq_pH = float(interpolator["func"](half_eq_x)) if np.isfinite(half_eq_x) else np.nan
-
-    veq_unc, pka_unc = estimate_uncertainties(
-        step_df, veq_used, hh_fit.get("veq_fit", np.nan), pka_reg
+    lo, hi = window
+    mask = (
+        (volumes > lo * veq)
+        & (volumes < hi * veq)
+        & (volumes < 0.95 * veq)
+        & (volumes > 0)
+        & np.isfinite(ph_values)
     )
+    v = volumes[mask]
+    y = ph_values[mask]
+    out["n_points"] = int(len(v))
+    if len(v) < 4:
+        return out
+
+    x = np.log10(v / (veq - v))
+    reg = _linear_regression_with_uncertainty(x, y)
+
+    m = reg["m"]
+    b = reg["b"]
+    r2 = reg["r2"]
+
+    if np.isfinite(m) and np.isfinite(b):
+        y_pred = m * x + b
+    else:
+        y_pred = np.full_like(y, np.nan)
+
+    out.update(
+        {
+            "pka_reg": float(b),
+            "slope_reg": float(m),
+            "r2": float(r2),
+            "se_intercept": float(reg["se_b"]),
+            "ci95_intercept": float(reg["ci95_b"]),
+            "buffer_df": pd.DataFrame(
+                {"Volume (cm³)": v, "log10_ratio": x, "pH_step": y, "pH_fit": y_pred}
+            ),
+        }
+    )
+    return out
+
+
+def select_best_buffer_fit(step_df: pd.DataFrame, veq: float) -> Dict:
+    windows = [(0.25, 0.75), (0.2, 0.8), (0.3, 0.7)]
+    fits = [fit_buffer_region(step_df, veq, window=w) for w in windows]
+    fits.sort(key=lambda f: (f.get("r2", -np.inf), f.get("n_points", 0)), reverse=True)
+    return fits[0] if fits else fit_buffer_region(step_df, veq, window=(0.2, 0.8))
+
+
+def _veq_uncertainty(
+    step_df: pd.DataFrame, burette_unc: float = DEFAULT_BURETTE_UNC
+) -> float:
+    if step_df.empty or "Volume (cm³)" not in step_df.columns:
+        return float(burette_unc)
+
+    volumes = pd.to_numeric(step_df["Volume (cm³)"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    volumes = volumes[np.isfinite(volumes)]
+    if len(volumes) < 2:
+        return float(burette_unc)
+
+    dv = np.diff(volumes)
+    dv = np.abs(dv[np.isfinite(dv)])
+    if len(dv) == 0:
+        return float(burette_unc)
+
+    median_step = float(np.median(dv))
+    res_term = 0.5 * median_step
+    return float(np.sqrt(res_term**2 + float(burette_unc) ** 2))
+
+
+def _pka_unc_from_half_eq(
+    interpolator: Dict, veq: float, veq_unc: float, ph_rand: float, ph_sys: float
+) -> float:
+    if not (
+        interpolator
+        and "func" in interpolator
+        and np.isfinite(veq)
+        and np.isfinite(veq_unc)
+        and veq > 0
+    ):
+        terms = [t for t in [ph_rand, ph_sys] if np.isfinite(t) and t > 0]
+        return float(np.sqrt(np.sum(np.array(terms) ** 2))) if terms else np.nan
+
+    v0 = veq / 2.0
+    v_plus = (veq + veq_unc) / 2.0
+    v_minus = max((veq - veq_unc) / 2.0, 0.0)
+
+    p0 = float(interpolator["func"](v0))
+    pp = float(interpolator["func"](v_plus))
+    pm = float(interpolator["func"](v_minus))
+
+    sens = np.nan
+    if np.isfinite(pp) and np.isfinite(pm):
+        sens = 0.5 * abs(pp - pm)
+    elif np.isfinite(pp) and np.isfinite(p0):
+        sens = abs(pp - p0)
+    elif np.isfinite(pm) and np.isfinite(p0):
+        sens = abs(pm - p0)
+
+    terms = []
+    for t in (sens, ph_rand, ph_sys):
+        if np.isfinite(t) and t > 0:
+            terms.append(float(t))
+    return float(np.sqrt(np.sum(np.array(terms) ** 2))) if terms else np.nan
+
+
+def _pka_unc_from_buffer_fit(
+    step_df: pd.DataFrame, veq: float, veq_unc: float, buffer_fit: Dict, ph_sys: float
+) -> float:
+    if step_df.empty or buffer_fit is None:
+        return np.nan
+
+    pka0 = buffer_fit.get("pka_reg", np.nan)
+    if not (
+        np.isfinite(pka0) and np.isfinite(veq) and np.isfinite(veq_unc) and veq > 0
+    ):
+        return np.nan
+
+    ci95 = buffer_fit.get("ci95_intercept", np.nan)
+    se = buffer_fit.get("se_intercept", np.nan)
+    reg_term = (
+        float(ci95) if np.isfinite(ci95) else (float(se) if np.isfinite(se) else np.nan)
+    )
+
+    fit_plus = select_best_buffer_fit(step_df, veq + veq_unc)
+    fit_minus = select_best_buffer_fit(step_df, max(veq - veq_unc, 0.1))
+    pka_plus = fit_plus.get("pka_reg", np.nan)
+    pka_minus = fit_minus.get("pka_reg", np.nan)
+
+    sens = np.nan
+    if np.isfinite(pka_plus) and np.isfinite(pka_minus):
+        sens = 0.5 * abs(float(pka_plus) - float(pka_minus))
+    elif np.isfinite(pka_plus):
+        sens = abs(float(pka_plus) - float(pka0))
+    elif np.isfinite(pka_minus):
+        sens = abs(float(pka_minus) - float(pka0))
+
+    terms = []
+    for t in (reg_term, sens, ph_sys):
+        if np.isfinite(t) and t > 0:
+            terms.append(float(t))
+
+    return float(np.sqrt(np.sum(np.array(terms) ** 2))) if terms else np.nan
+
+
+def analyze_titration(
+    df: pd.DataFrame,
+    run_name: str,
+    x_col: str = "Volume (cm³)",
+    burette_unc: float = DEFAULT_BURETTE_UNC,
+    ph_sys: float = DEFAULT_PH_METER_SYS,
+    ph_rand: float = DEFAULT_PH_METER_RAND,
+) -> Dict:
+    step_df = aggregate_volume_steps(df)
+    if step_df.empty:
+        return {
+            "run_name": run_name,
+            "skip_reason": "No valid volume/pH data after aggregation",
+            "x_col": x_col,
+            "data": df,
+            "step_data": step_df,
+            "dense_curve": pd.DataFrame(),
+            "buffer_region": pd.DataFrame(),
+        }
+
+    step_df = _smooth_ph_for_derivative(step_df, window=7, poly=2)
+    step_df = _ensure_derivative(step_df, use_smooth=True)
+
+    interpolator = build_ph_interpolator(step_df, method=None)
+    dense_curve = generate_dense_curve(interpolator, n_points=1200)
+
+    eq_info = detect_equivalence_point(step_df, interpolator=interpolator)
+
+    veq_used = float(eq_info.get("eq_x", np.nan))
+    veq_method = eq_info.get("method", None)
+
+    veq_unc = _veq_uncertainty(step_df, burette_unc=burette_unc)
+
+    half_eq_x = veq_used / 2.0 if np.isfinite(veq_used) and veq_used > 0 else np.nan
+    half_eq_pH = (
+        float(interpolator["func"](half_eq_x))
+        if (np.isfinite(half_eq_x) and "func" in interpolator)
+        else np.nan
+    )
+
+    buffer_fit = (
+        select_best_buffer_fit(step_df, veq_used) if np.isfinite(veq_used) else None
+    )
+    buffer_df = (
+        buffer_fit.get("buffer_df", pd.DataFrame()) if buffer_fit else pd.DataFrame()
+    )
+
+    pka_reg = buffer_fit.get("pka_reg", np.nan) if buffer_fit else np.nan
+    if np.isfinite(pka_reg):
+        pka_used = float(pka_reg)
+        pka_method = "buffer_regression"
+        pka_unc = _pka_unc_from_buffer_fit(
+            step_df, veq_used, veq_unc, buffer_fit, ph_sys=ph_sys
+        )
+    else:
+        pka_used = float(half_eq_pH) if np.isfinite(half_eq_pH) else np.nan
+        pka_method = "half_equivalence" if np.isfinite(half_eq_pH) else "unknown"
+        pka_unc = _pka_unc_from_half_eq(
+            interpolator, veq_used, veq_unc, ph_rand=ph_rand, ph_sys=ph_sys
+        )
 
     return {
         "run_name": run_name,
-        "eq_x": eq_info["eq_x"],
-        "eq_pH": eq_info["eq_pH"],
-        "eq_qc_pass": eq_info["qc_pass"],
-        "eq_qc_reason": eq_info["qc_reason"],
+        "eq_x": eq_info.get("eq_x", np.nan),
+        "eq_pH": eq_info.get("eq_pH", np.nan),
+        "eq_qc_pass": bool(eq_info.get("qc_pass", False)),
+        "eq_qc_reason": eq_info.get("qc_reason", ""),
         "veq_used": veq_used,
         "veq_method": veq_method,
         "veq_uncertainty": veq_unc,
         "half_eq_x": half_eq_x,
         "half_eq_pH": half_eq_pH,
-        "pka_reg": pka_reg,
-        "slope_reg": buffer_fit.get("slope_reg", np.nan),
-        "r2_reg": buffer_fit.get("r2", np.nan),
-        "pka_half": half_eq_pH,
+        "pka_used": pka_used,
+        "pka_method": pka_method,
         "pka_uncertainty": pka_unc,
-        "hh_fit": hh_fit,
+        "pka_reg": pka_reg,
+        "slope_reg": buffer_fit.get("slope_reg", np.nan) if buffer_fit else np.nan,
+        "r2_reg": buffer_fit.get("r2", np.nan) if buffer_fit else np.nan,
+        "buffer_window": buffer_fit.get("window", None) if buffer_fit else None,
         "x_col": x_col,
         "data": df,
         "step_data": step_df,
         "dense_curve": dense_curve,
-        "buffer_region": buffer_fit.get("buffer_df", pd.DataFrame()),
+        "buffer_region": buffer_df,
         "diagnostics": {
-            "interpolator_method": interpolator["method"],
-            "step_points": len(step_df),
+            "interpolator_method": interpolator.get("method"),
+            "step_points": int(len(step_df)),
+            "buffer_points": int(buffer_fit.get("n_points", 0)) if buffer_fit else 0,
         },
     }
 
 
 def process_all_files(file_list):
-    """Process multiple titration data files."""
     results = []
 
     for filepath, nacl_conc in file_list:
@@ -400,141 +713,103 @@ def process_all_files(file_list):
 
 
 def create_results_dataframe(results):
-    """Create a tidy DataFrame of per-run results for downstream analysis/plotting.
-
-    This now includes IB-style worst-case absolute uncertainties where available
-    (e.g., pKa_uncertainty) so that downstream summary statistics and plots can
-    show IB-compatible error bars (absolute, worst-case).
-    """
     rows = []
     for res in results:
         rows.append(
             {
                 "Run": res.get("run_name"),
                 "NaCl Concentration (M)": res.get("nacl_conc", np.nan),
-                "pKa (buffer regression)": res.get("pka_reg", np.nan),
+                "pKa (used)": res.get("pka_used", np.nan),
+                "pKa method": res.get("pka_method", ""),
                 "pKa uncertainty (ΔpKa)": res.get("pka_uncertainty", np.nan),
                 "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
                 "Veq (used)": res.get("veq_used", np.nan),
                 "Veq uncertainty (ΔVeq)": res.get("veq_uncertainty", np.nan),
+                "Veq method": res.get("veq_method", ""),
+                "pKa (buffer regression)": res.get("pka_reg", np.nan),
+                "Slope (buffer fit)": res.get("slope_reg", np.nan),
+                "R2 (buffer fit)": res.get("r2_reg", np.nan),
+                "Buffer window": res.get("buffer_window", None),
                 "Source File": res.get("source_file", ""),
             }
         )
-    df = pd.DataFrame(rows)
-    # Enforce a conservative per-run uncertainty floor for small-n groups (notably 1.0 M)
-    # to keep individual-run error bars consistent with the broader dataset.
-    try:
-        per_run_uncs = df['pKa uncertainty (ΔpKa)'].dropna()
-        # Use the median of NON-1.0 M runs to define a conservative floor so that the
-        # 1.0 M error bars are consistent with the broader dataset.
-        per_run_uncs_non1 = df.loc[df['NaCl Concentration (M)'] != 1.0, 'pKa uncertainty (ΔpKa)'].dropna()
-        if len(per_run_uncs_non1):
-            import numpy as _np
-
-            median_non1 = float(_np.median(per_run_uncs_non1.to_numpy()))
-            mask = (
-                (df['NaCl Concentration (M)'] == 1.0)
-                & (df['pKa uncertainty (ΔpKa)'].notna())
-                & (df['pKa uncertainty (ΔpKa)'] < median_non1)
-            )
-            df.loc[mask, 'pKa uncertainty (ΔpKa)'] = median_non1
-    except Exception:
-        pass
-
-    return df
+    return pd.DataFrame(rows)
 
 
-def calculate_statistics(results_df):
-    """Compute group-level statistics for pKa by NaCl concentration using
-    IB worst-case absolute uncertainty rules.
-
-    Rules applied:
-      - Mean pKa: arithmetic mean of per-run pKa values.
-      - Uncertainty on mean (Δmean): (Σ Δi) / n  (worst-case propagation for a mean)
-
-    Returns a DataFrame with columns: "NaCl Concentration (M)", "Mean pKa",
-    "Uncertainty", and "n".
-    """
+def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
     if results_df.empty:
-        return pd.DataFrame(columns=["NaCl Concentration (M)", "Mean pKa", "Uncertainty", "n"])
+        return pd.DataFrame(
+            columns=["NaCl Concentration (M)", "Mean pKa", "Uncertainty", "n"]
+        )
 
     rows = []
     grouped = results_df.groupby("NaCl Concentration (M)")
 
     for conc, group in grouped:
-        pka_vals = group["pKa (buffer regression)"].dropna().to_numpy()
-        pka_uncs = group.get("pKa uncertainty (ΔpKa)")
-        # Some runs may lack reported uncertainty; treat missing as NaN and require explicit uncertainties
-        if pka_uncs is None or pka_uncs.dropna().empty:
-            # If no uncertainties are provided, set mean uncertainty to NaN and leave explicit note
-            delta_mean = float("nan")
+        vals = pd.to_numeric(group["pKa (used)"], errors="coerce").to_numpy(dtype=float)
+        vals = vals[np.isfinite(vals)]
+        n = int(len(vals))
+        mean_pka = float(np.mean(vals)) if n else np.nan
+
+        if n >= 2:
+            unc = 0.5 * float(np.max(vals) - np.min(vals))
+        elif n == 1:
+            u = pd.to_numeric(
+                group["pKa uncertainty (ΔpKa)"], errors="coerce"
+            ).to_numpy(dtype=float)
+            u = u[np.isfinite(u)]
+            unc = float(u[0]) if len(u) else np.nan
         else:
-            # Worst-case mean uncertainty: Δmean = (Σ Δi) / n
-            # Only include runs that have both pKa and an associated ΔpKa
-            valid = group.dropna(subset=["pKa (buffer regression)", "pKa uncertainty (ΔpKa)"])
-            n = len(valid)
-            if n == 0:
-                delta_mean = float("nan")
-            else:
-                delta_mean = valid["pKa uncertainty (ΔpKa)"].abs().sum() / n
+            unc = np.nan
 
-        # Conservative floor: if this group's mean uncertainty is smaller than
-        # the median per-run ΔpKa across the dataset, use that median as a minimum.
-        # This avoids unrealistically small group error bars when one group has
-        # anomalously tiny per-run uncertainties.
-        try:
-            per_run_uncs = results_df["pKa uncertainty (ΔpKa)"].dropna().to_numpy()
-            if len(per_run_uncs):
-                import numpy as _np
+        rows.append(
+            {
+                "NaCl Concentration (M)": conc,
+                "Mean pKa": mean_pka,
+                "Uncertainty": unc,
+                "n": n,
+            }
+        )
 
-                median_all = float(_np.median(per_run_uncs))
-                if pd.notna(delta_mean) and delta_mean < median_all:
-                    delta_mean = median_all
-        except Exception:
-            # If anything goes wrong computing the floor, keep computed delta_mean
-            pass
-
-        mean_pka = float(pka_vals.mean()) if len(pka_vals) else float("nan")
-        n_total = int(len(pka_vals))
-
-        rows.append({"NaCl Concentration (M)": conc, "Mean pKa": mean_pka, "Uncertainty": delta_mean, "n": n_total})
-
-    stats = pd.DataFrame.from_records(rows)
-    return stats.sort_values("NaCl Concentration (M)").reset_index(drop=True)
+    return (
+        pd.DataFrame.from_records(rows)
+        .sort_values("NaCl Concentration (M)")
+        .reset_index(drop=True)
+    )
 
 
-def print_statistics(stats_df, results_df):
-    """Print a concise IB-style statistical summary to stdout.
-
-    Uses worst-case absolute uncertainty rules: for the mean, Δmean = (Σ Δi) / n.
-    Outputs are formatted in IA-friendly language (e.g., "Mean pKa = x ± Δx").
-    """
-    print("\nStatistical summary by NaCl concentration (IB worst-case uncertainties):")
+def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
+    print("\nStatistical summary by NaCl concentration (IB-style):")
     if stats_df.empty:
         print("  (no data)")
         return
+
     for _, row in stats_df.iterrows():
         conc = row["NaCl Concentration (M)"]
         mean = row["Mean pKa"]
         unc = row.get("Uncertainty")
         n = int(row["n"])
-        if pd.notna(unc):
-            # Format with uncertainty rounding rules from the uncertainty module
-            from .uncertainty import _format_value_with_uncertainty
 
-            formatted = _format_value_with_uncertainty(mean, unc, unit="")
-            print(f" - {conc} M: Mean pKa = {formatted} (n={n})")
+        if pd.notna(unc):
+            print(f" - {conc} M: Mean pKa = {mean:.3f} ± {unc:.3f} (n={n})")
         else:
-            print(f" - {conc} M: Mean pKa = {mean:.3f} (uncertainty not available) (n={n})")
+            print(
+                f" - {conc} M: Mean pKa = {mean:.3f} (uncertainty not available) (n={n})"
+            )
 
         subset = results_df[results_df["NaCl Concentration (M)"] == conc]
         for _, r in subset.iterrows():
-            pka = r.get("pKa (buffer regression)")
+            pka = r.get("pKa (used)")
             pka_unc = r.get("pKa uncertainty (ΔpKa)")
             qc = r.get("Equivalence QC Pass")
+            veq = r.get("Veq (used)")
+            method = r.get("Veq method", "")
+            pka_method = r.get("pKa method", "")
             if pd.notna(pka_unc):
                 print(
-                    f"     {r['Run']}: pKa = {pka:.3f} ± {pka_unc:.3f} (QC: {qc})"
+                    f"     {r['Run']}: pKa={pka:.3f} ± {pka_unc:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
                 )
             else:
-                print(f"     {r['Run']}: pKa = {pka:.3f} (QC: {qc})")
+                print(
+                    f"     {r['Run']}: pKa={pka:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
+                )
