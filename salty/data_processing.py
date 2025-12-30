@@ -1,5 +1,5 @@
 """
-CSV parsing and stepwise titration data processing (DP Chemistry SL–aligned).
+CSV parsing and stepwise titration data processing (DP Chemistry SL-aligned).
 
 This module:
 - Extracts Logger Pro "Run X: ..." wide-format exports into tidy per-run DataFrames.
@@ -18,6 +18,11 @@ Key design choices for IB defensibility:
 """
 
 from __future__ import annotations
+
+# CHANGELOG:
+# - Defaulted volume binning to None and disabled auto-binning unless requested.
+# - Added step equilibration diagnostics (pH drift, optional pH vs time slope).
+# - Ensured duplicate-step aggregation preserves counts via summation.
 
 import importlib.util
 from typing import Dict, Optional
@@ -170,22 +175,44 @@ def aggregate_volume_steps(
     volume_col: str = "Volume (cm³)",
     ph_col: str = "pH",
     volume_bin: Optional[float] = DEFAULT_VOLUME_BIN,
-    auto_bin_if_needed: bool = True,
+    auto_bin_if_needed: bool = False,
+    time_col: Optional[str] = "Time (min)",
     tail_max: int = 10,
     tail_min: int = 3,
 ) -> pd.DataFrame:
     if volume_col not in df.columns or ph_col not in df.columns:
         return pd.DataFrame(
-            columns=[volume_col, "pH_step", "pH_step_sd", "n_step", "n_tail"]
+            columns=[
+                volume_col,
+                "pH_step",
+                "pH_step_sd",
+                "pH_drift_step",
+                "pH_slope_step",
+                "n_step",
+                "n_tail",
+            ]
         )
 
-    working = df[[volume_col, ph_col]].copy()
+    keep_cols = [volume_col, ph_col]
+    if time_col and time_col in df.columns:
+        keep_cols.append(time_col)
+    working = df[keep_cols].copy()
     working[volume_col] = pd.to_numeric(working[volume_col], errors="coerce").ffill()
     working[ph_col] = pd.to_numeric(working[ph_col], errors="coerce")
+    if time_col and time_col in working.columns:
+        working[time_col] = pd.to_numeric(working[time_col], errors="coerce")
     working = working.dropna(subset=[volume_col, ph_col])
     if working.empty:
         return pd.DataFrame(
-            columns=[volume_col, "pH_step", "pH_step_sd", "n_step", "n_tail"]
+            columns=[
+                volume_col,
+                "pH_step",
+                "pH_step_sd",
+                "pH_drift_step",
+                "pH_slope_step",
+                "n_step",
+                "n_tail",
+            ]
         )
 
     if volume_bin is None and auto_bin_if_needed:
@@ -203,16 +230,36 @@ def aggregate_volume_steps(
 
         n_total = int(len(ph_vals))
         n_tail = int(min(tail_max, max(tail_min, n_total // 3)))
+        third = max(1, n_total // 3)
+        first_third = ph_vals.head(third)
         tail = ph_vals.tail(n_tail)
+        last_third = ph_vals.tail(third)
 
         ph_step = float(np.median(tail))
         ph_step_sd = float(np.std(tail, ddof=1)) if len(tail) > 1 else 0.0
+        # DP-friendly equilibration proxy: median drift from first to last third.
+        ph_drift = float(np.median(last_third) - np.median(first_third))
+
+        ph_slope = np.nan
+        if time_col and time_col in grp.columns:
+            tvals = pd.to_numeric(grp[time_col], errors="coerce").to_numpy(dtype=float)
+            pvals = ph_vals.to_numpy(dtype=float)
+            mask = np.isfinite(tvals) & np.isfinite(pvals)
+            if np.sum(mask) >= 2:
+                tt = tvals[mask]
+                pp = pvals[mask]
+                try:
+                    ph_slope = float(np.polyfit(tt, pp, 1)[0])
+                except Exception:
+                    ph_slope = np.nan
 
         records.append(
             {
                 volume_col: float(vol),
                 "pH_step": ph_step,
                 "pH_step_sd": ph_step_sd,
+                "pH_drift_step": ph_drift,
+                "pH_slope_step": ph_slope,
                 "n_step": n_total,
                 "n_tail": n_tail,
             }
@@ -221,7 +268,15 @@ def aggregate_volume_steps(
     step_df = pd.DataFrame.from_records(records)
     if step_df.empty:
         return pd.DataFrame(
-            columns=[volume_col, "pH_step", "pH_step_sd", "n_step", "n_tail"]
+            columns=[
+                volume_col,
+                "pH_step",
+                "pH_step_sd",
+                "pH_drift_step",
+                "pH_slope_step",
+                "n_step",
+                "n_tail",
+            ]
         )
 
     step_df = step_df.sort_values(volume_col).reset_index(drop=True)
@@ -229,7 +284,14 @@ def aggregate_volume_steps(
     step_df = _ensure_strictly_increasing_unique(
         step_df,
         volume_col,
-        y_cols=["pH_step", "pH_step_sd", "n_step", "n_tail"],
+        y_cols=[
+            "pH_step",
+            "pH_step_sd",
+            "pH_drift_step",
+            "pH_slope_step",
+            "n_step",
+            "n_tail",
+        ],
     )
     return step_df
 

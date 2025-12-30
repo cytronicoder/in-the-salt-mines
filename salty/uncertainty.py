@@ -17,6 +17,11 @@ For burettes, note the distinction between reading uncertainty and delivered-vol
 
 from __future__ import annotations
 
+# CHANGELOG:
+# - Added shared rounding helper to align values with IB uncertainty s.f. rules.
+# - Added configurable uncertainty combiner to keep worst-case behavior consistent.
+# - Clarified delivered-volume uncertainty usage and exposed helper for rounding outputs.
+
 from dataclasses import dataclass
 from typing import Dict, Tuple, Optional, Mapping
 import math
@@ -99,6 +104,18 @@ def _round_uncertainty(u: float) -> Tuple[float, int]:
     return float(ru), int(ndigits)
 
 
+def round_value_to_uncertainty(value: float, uncertainty: float) -> Tuple[float, float]:
+    """
+    Round a value and uncertainty using IB s.f. rules:
+    - uncertainty to 1 s.f. (2 if leading digit is 1)
+    - value rounded to the same decimal place
+    """
+    ru, ndigits = _round_uncertainty(abs(float(uncertainty)))
+    if not math.isfinite(ru) or ru == 0:
+        return float(value), float(uncertainty)
+    return float(round(float(value), ndigits)), float(ru)
+
+
 def _format_number_with_rounding(x: float, ndigits: int) -> str:
     xr = round(float(x), ndigits)
     if ndigits > 0:
@@ -118,6 +135,26 @@ def format_value_with_uncertainty(
     v_str = _format_number_with_rounding(value, ndigits)
     u_str = _format_number_with_rounding(ru, ndigits)
     return f"{v_str} ± {u_str} {unit}".strip()
+
+
+def combine_uncertainties(
+    terms: list[float], method: str = "worst_case"
+) -> float:
+    """
+    Combine absolute uncertainties using a named method.
+
+    method:
+      - "worst_case": sum of absolute uncertainties (IB default)
+      - "quadrature": sqrt(sum of squares), only if explicitly requested
+    """
+    vals = [abs(float(t)) for t in terms if math.isfinite(t) and abs(float(t)) > 0]
+    if not vals:
+        return math.nan
+    if method == "quadrature":
+        return float(math.sqrt(sum(v**2 for v in vals)))
+    if method != "worst_case":
+        raise ValueError("method must be 'worst_case' or 'quadrature'")
+    return float(sum(vals))
 
 
 def _resolve_uncertainty(label: str, q: Quantity) -> float:
