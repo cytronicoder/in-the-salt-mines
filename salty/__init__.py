@@ -17,9 +17,15 @@ from .analysis import (
     analyze_titration,
     calculate_statistics,
     create_results_dataframe,
-    find_equivalence_point,
+    detect_equivalence_point,
     print_statistics,
     process_all_files,
+)
+from .uncertainty import (
+    add_subtract,
+    mul_div,
+    power,
+    uncertainty_for_equipment,
 )
 from .data_processing import calculate_derivatives, extract_runs, load_titration_data
 from .plotting import (
@@ -35,7 +41,7 @@ __all__ = [
     "calculate_derivatives",
     "load_titration_data",
     # Analysis
-    "find_equivalence_point",
+    "detect_equivalence_point",
     "analyze_titration",
     "process_all_files",
     "create_results_dataframe",
