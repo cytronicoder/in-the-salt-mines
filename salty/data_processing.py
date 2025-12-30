@@ -278,57 +278,5 @@ def aggregate_volume_steps(
     return step_df
 
 
-def calculate_derivatives(
-    df: pd.DataFrame,
-    x_col: str = "Volume (cm³)",
-    ph_col: str = "pH_step",
-    prefer_pchip: bool = True,
-) -> pd.DataFrame:
-    if df.empty or x_col not in df.columns or ph_col not in df.columns:
-        out = df.copy()
-        out["pH_smooth"] = np.nan
-        out["dpH/dx"] = np.nan
-        out["d2pH/dx2"] = np.nan
-        return out
-
-    out = df.copy()
-    out[x_col] = pd.to_numeric(out[x_col], errors="coerce")
-    out[ph_col] = pd.to_numeric(out[ph_col], errors="coerce")
-    out = out.dropna(subset=[x_col, ph_col]).copy()
-    if out.empty:
-        out = df.copy()
-        out["pH_smooth"] = np.nan
-        out["dpH/dx"] = np.nan
-        out["d2pH/dx2"] = np.nan
-        return out
-
-    out = _ensure_strictly_increasing_unique(
-        out, x_col, y_cols=[ph_col, "pH_step_sd", "n_step", "n_tail"]
-    )
-
-    x = out[x_col].to_numpy(dtype=float)
-    y = out[ph_col].to_numpy(dtype=float)
-
-    if HAVE_SCIPY and prefer_pchip and len(x) >= 3:
-        interp = PchipInterpolator(x, y, extrapolate=False)
-        d1 = interp.derivative()
-        d2 = d1.derivative()
-
-        out["pH_smooth"] = np.asarray(interp(x), dtype=float)
-        out["dpH/dx"] = np.asarray(d1(x), dtype=float)
-        out["d2pH/dx2"] = np.asarray(d2(x), dtype=float)
-
-        out = out.sort_values(x_col).reset_index(drop=True)
-        return out
-
-    out["pH_smooth"] = y
-    dp = np.gradient(y, x)
-    d2p = np.gradient(dp, x)
-    out["dpH/dx"] = dp
-    out["d2pH/dx2"] = d2p
-    out = out.sort_values(x_col).reset_index(drop=True)
-    return out
-
-
 def load_titration_data(filepath: str) -> pd.DataFrame:
     return pd.read_csv(filepath)

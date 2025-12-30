@@ -21,19 +21,22 @@ from .analysis import (
     print_statistics,
     process_all_files,
 )
-from .data_processing import calculate_derivatives, extract_runs, load_titration_data
+from .data_processing import extract_runs, load_titration_data
 from .plotting import (
     plot_statistical_summary,
     plot_titration_curves,
     save_data_to_csv,
     setup_plot_style,
 )
-from .uncertainty import add_subtract, mul_div, power, uncertainty_for_equipment
+from .uncertainty import (
+    burette_delivered_uncertainty,
+    combine_uncertainties,
+    round_value_to_uncertainty,
+)
 
 __all__ = [
     # Data processing
     "extract_runs",
-    "calculate_derivatives",
     "load_titration_data",
     # Analysis
     "detect_equivalence_point",

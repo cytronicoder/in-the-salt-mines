@@ -86,38 +86,29 @@ def main():
 
     print_statistics(stats_df, results_df)
 
-    underpowered = stats_df[stats_df["n"] < 3]
-    if not underpowered.empty:
-        output_dir = "output"
-        os.makedirs(output_dir, exist_ok=True)
-        msg_lines = ["Data coverage issues detected:\n"]
-        for _, row in underpowered.iterrows():
-            conc = row["NaCl Concentration (M)"]
-            n = int(row["n"])
-            msg_lines.append(f" - {conc} M has only {n} valid runs (n<3)\n")
-            subset = results_df[results_df["NaCl Concentration (M)"] == conc]
-            for _, r in subset.iterrows():
-                msg_lines.append(
-                    f"     {r['Run']}: pKa={r['pKa (buffer regression)']} (QC: {r['Equivalence QC Pass']})\n"
-                )
-        report_path = os.path.join(output_dir, "data_coverage_report.txt")
-        with open(report_path, "w") as fh:
-            fh.writelines(msg_lines)
-        logging.warning(
-            "Insufficient replication for some concentrations; report written to %s",
-            report_path,
-        )
-
     output_dir = "output"
     os.makedirs(output_dir, exist_ok=True)
     logging.info("Output directory ensured: %s", output_dir)
 
+    import glob
+    png_files = glob.glob(os.path.join(output_dir, "*.png"))
+    for png in png_files:
+        os.remove(png)
+    logging.info("Removed %d existing PNG files", len(png_files))
+
+    with_raw_dir = os.path.join(output_dir, "with_raw")
+    without_raw_dir = os.path.join(output_dir, "without_raw")
+    os.makedirs(with_raw_dir, exist_ok=True)
+    os.makedirs(without_raw_dir, exist_ok=True)
+
     step_start = time.time()
-    titration_plot_paths = plot_titration_curves(results, output_dir)
-    summary_plot_path = plot_statistical_summary(stats_df, results_df, output_dir)
+    titration_plot_paths_with = plot_titration_curves(results, with_raw_dir, show_raw_pH=True)
+    titration_plot_paths_without = plot_titration_curves(results, without_raw_dir, show_raw_pH=False)
+    summary_plot_path_with = plot_statistical_summary(stats_df, results_df, with_raw_dir)
+    summary_plot_path_without = plot_statistical_summary(stats_df, results_df, without_raw_dir)
     step_duration = time.time() - step_start
     logging.info(
-        "Generated %d individual titration curve figures", len(titration_plot_paths)
+        "Generated %d individual titration curve figures in each folder", len(titration_plot_paths_with)
     )
 
     step_start = time.time()
@@ -125,17 +116,8 @@ def main():
     step_duration = time.time() - step_start
 
     total_duration = time.time() - start_time
-    logging.info(f"Total execution time: {total_duration:.2f} seconds")
-
+    logging.info("Total execution time: %.2f seconds", total_duration)
     logging.info("Analysis pipeline completed successfully")
-    logging.info("Generated output files:")
-    logging.info("Analysis pipeline completed successfully")
-    logging.info("Generated output files:")
-    for path in titration_plot_paths:
-        logging.info("  - Titration curve: %s", path)
-    logging.info("  - Statistical summary: %s", summary_plot_path)
-    logging.info("  - Individual results CSV: %s", results_csv)
-    logging.info("  - Statistical summary CSV: %s", stats_csv)
 
 
 if __name__ == "__main__":
