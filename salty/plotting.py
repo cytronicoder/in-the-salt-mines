@@ -282,13 +282,26 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
             )
 
         veq = res.get("veq_used", np.nan)
-        if np.isfinite(veq):
+        ph_at_veq = np.nan
+        ph_at_half = np.nan
+        if np.isfinite(veq) and len(x_smooth) > 0:
+            idx_veq = np.argmin(np.abs(x_smooth - veq))
+            ph_at_veq = y_smooth[idx_veq]
+            idx_half = np.argmin(np.abs(x_smooth - veq / 2))
+            ph_at_half = y_smooth[idx_half]
             ax1.axvline(
                 veq,
                 color="black",
                 linestyle="--",
                 linewidth=1.8,
-                label="Equivalence point",
+                label=f"Equivalence point: pH {ph_at_veq:.2f}",
+            )
+            ax1.axvline(
+                veq / 2,
+                color="black",
+                linestyle=":",
+                linewidth=1.8,
+                label=f"Half-equivalence point: pH {ph_at_half:.2f}",
             )
 
         ax1.set_title("Titration curve", fontweight="bold")
@@ -338,7 +351,14 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
                         color="black",
                         linestyle="--",
                         linewidth=1.6,
-                        label="Equivalence point",
+                        label=f"Equivalence point: pH {ph_at_veq:.2f}",
+                    )
+                    ax2.axvline(
+                        veq / 2,
+                        color="black",
+                        linestyle=":",
+                        linewidth=1.6,
+                        label=f"Half-equivalence point: pH {ph_at_half:.2f}",
                     )
                 ax2.axhline(0, color="black", linewidth=1.0, alpha=0.6)
 
