@@ -1,36 +1,20 @@
 """
-IB DP-style worst-case uncertainty propagation utilities.
+Provides uncertainty propagation utilities following IB DP rules.
 
-Implements worst-case (absolute) propagation using standard IB rules:
-- Addition/subtraction: Δy = Σ Δx
-- Multiplication/division: Δy / |y| = Σ (Δx / |x|)
-- Powers: Δy / |y| = |n| (Δa / |a|) for y = a^n (with defined handling when a = 0)
+Implements worst-case propagation for addition, multiplication, and powers.
 
-This module also provides IB-style formatting:
-- Uncertainty rounded to 1 significant figure (2 if leading digit is 1)
-- Value rounded to the same place value as the uncertainty
-
-Equipment uncertainties can be retrieved from a small editable lookup table.
-For burettes, note the distinction between reading uncertainty and delivered-volume uncertainty
-(two readings): use `burette_delivered_uncertainty(...)`.
+Includes equipment uncertainty lookup, value rounding, and formatting.
 """
 
 from __future__ import annotations
 
-# CHANGELOG:
-# - Added shared rounding helper to align values with IB uncertainty s.f. rules.
-# - Added configurable uncertainty combiner to keep worst-case behavior consistent.
-# - Clarified delivered-volume uncertainty usage and exposed helper for rounding outputs.
-
-from dataclasses import dataclass
-from typing import Dict, Tuple, Optional, Mapping
 import math
+from dataclasses import dataclass
+from typing import Dict, Mapping, Optional, Tuple
 
-
-# (uncertainty, 'abs'|'pct')
 _EQUIPMENT_UNCERTAINTIES: Dict[str, Tuple[float, str]] = {
     "25.0 cm3 pipette": (0.06, "abs"),
-    "50.0 cm3 burette": (0.05, "abs"),  # reading uncertainty (per reading)
+    "50.0 cm3 burette": (0.05, "abs"),
     "250 cm3 beaker": (5.0, "pct"),
     "100 cm3 volumetric flask": (0.10, "abs"),
     "Vernier pH Sensor PH-BTA": (0.2, "abs"),
@@ -42,7 +26,7 @@ _EQUIPMENT_UNCERTAINTIES: Dict[str, Tuple[float, str]] = {
 @dataclass(frozen=True)
 class Quantity:
     value: float
-    uncertainty: Optional[float] = None  # absolute uncertainty
+    uncertainty: Optional[float] = None
     unit: str = ""
 
 
@@ -93,7 +77,7 @@ def _round_uncertainty(u: float) -> Tuple[float, int]:
     leading = u / (10**exponent)
 
     sig_figs = 2 if 1.0 <= leading < 2.0 else 1
-    ndigits = sig_figs - 1 - exponent  # may be negative
+    ndigits = sig_figs - 1 - exponent
 
     ru = round(u, ndigits)
 
@@ -137,9 +121,7 @@ def format_value_with_uncertainty(
     return f"{v_str} ± {u_str} {unit}".strip()
 
 
-def combine_uncertainties(
-    terms: list[float], method: str = "worst_case"
-) -> float:
+def combine_uncertainties(terms: list[float], method: str = "worst_case") -> float:
     """
     Combine absolute uncertainties using a named method.
 

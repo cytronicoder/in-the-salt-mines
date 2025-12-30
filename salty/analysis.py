@@ -1,33 +1,14 @@
 """
-DP Chemistry SL titration analysis.
+Analyzes weak acid-strong base titration data to estimate equivalence volumes and apparent pKa values.
 
-This module analyzes weak acid-strong base titration data to estimate:
-- Equivalence volume (V_eq) from the maximum of d(pH)/dV (inflection point).
-- Apparent pK_a from Henderson-Hasselbalch buffer-region linear regression:
-    pH = m * log10(V / (V_eq - V)) + b, where b ≈ pK_a.
-  The regression is performed for every run (no slope/R^2 gating). Slope and R^2 are reported
-  as diagnostics only.
+Detects V_eq from the inflection point (max d(pH)/dV) and pKa from buffer-region regression.
 
-Interpolation (PCHIP if available; otherwise linear) is used to:
-- Produce a smooth curve for plotting.
-- Estimate pH at half-equivalence (reported as an additional DP reference value).
+Uses PCHIP interpolation for smooth curves and half-equivalence pH estimation.
 
-Uncertainties (IB-defensible, simple):
-- ΔV_eq from delivered burette uncertainty (two readings) and half the median volume step
-  using worst-case addition (quadrature available only if explicitly requested).
-- ΔpK_a from regression intercept uncertainty (95% CI if available, else SE), V_eq sensitivity,
-  and optional pH systematic offset using worst-case addition. If regression cannot be performed,
-  ΔpK_a is estimated from half-equivalence sensitivity plus pH meter terms.
-
-All reported pK_a values should be treated as apparent pK_a (ionic strength/activity effects can shift values).
+Estimates uncertainties using IB DP rules, including burette and pH meter contributions.
 """
 
 from __future__ import annotations
-
-# CHANGELOG:
-# - Standardized uncertainty propagation to IB worst-case rules with optional quadrature.
-# - Added configurable derivative smoothing and step-derivative evaluation at step volumes.
-# - Reported buffer regression diagnostics consistently and avoided equivalence gating by QC.
 
 import importlib.util
 import os
@@ -671,7 +652,6 @@ def analyze_titration(
         }
 
     if smooth_for_derivative:
-        # Mild smoothing improves derivative stability without overfitting.
         step_df = _smooth_ph_for_derivative(
             step_df, window=savgol_window, poly=polyorder
         )
@@ -811,16 +791,12 @@ def create_results_dataframe(results):
                 "pKa method": res.get("pka_method", ""),
                 "pKa uncertainty (ΔpKa)": res.get("pka_uncertainty", np.nan),
                 "pKa (used, rounded)": res.get("pka_used_rounded", np.nan),
-                "pKa uncertainty (rounded)": res.get(
-                    "pka_uncertainty_rounded", np.nan
-                ),
+                "pKa uncertainty (rounded)": res.get("pka_uncertainty_rounded", np.nan),
                 "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
                 "Veq (used)": res.get("veq_used", np.nan),
                 "Veq uncertainty (ΔVeq)": res.get("veq_uncertainty", np.nan),
                 "Veq (used, rounded)": res.get("veq_used_rounded", np.nan),
-                "Veq uncertainty (rounded)": res.get(
-                    "veq_uncertainty_rounded", np.nan
-                ),
+                "Veq uncertainty (rounded)": res.get("veq_uncertainty_rounded", np.nan),
                 "Veq method": res.get("veq_method", ""),
                 "pKa (buffer regression)": res.get("pka_reg", np.nan),
                 "Slope (buffer fit)": res.get("slope_reg", np.nan),
@@ -908,9 +884,7 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
             ):
                 pka = r.get("pKa (used, rounded)")
                 pka_unc = r.get("pKa uncertainty (rounded)")
-            if "Veq (used, rounded)" in r and pd.notna(
-                r.get("Veq (used, rounded)")
-            ):
+            if "Veq (used, rounded)" in r and pd.notna(r.get("Veq (used, rounded)")):
                 veq = r.get("Veq (used, rounded)")
             if pd.notna(pka_unc):
                 print(

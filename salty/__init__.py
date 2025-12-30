@@ -1,13 +1,13 @@
 """
-A Python package for analyzing titration data to determine half-equivalence points
-and apparent pKa values of acids under different ionic strength conditions. I
-created this package to streamline the analysis of my titration experiments
-for my DP Chemistry SL IA project.
+A Python package for analyzing weak acid-strong base titration data.
+
+Determines equivalence points and apparent pKa values under varying ionic strength conditions.
 
 Modules:
-    - data_processing: Functions for loading and processing titration data
-    - analysis: Functions for analyzing titration runs and calculating pKa
-    - plotting: Functions for creating professional figures and saving results
+    - data_processing: Loads and processes titration data from CSV files.
+    - analysis: Analyzes titration runs, calculates pKa, and estimates uncertainties.
+    - plotting: Creates publication-quality plots and saves results.
+    - uncertainty: Handles uncertainty propagation using IB DP rules.
 """
 
 __version__ = "1.0.0"
@@ -21,12 +21,6 @@ from .analysis import (
     print_statistics,
     process_all_files,
 )
-from .uncertainty import (
-    add_subtract,
-    mul_div,
-    power,
-    uncertainty_for_equipment,
-)
 from .data_processing import calculate_derivatives, extract_runs, load_titration_data
 from .plotting import (
     plot_statistical_summary,
@@ -34,6 +28,7 @@ from .plotting import (
     save_data_to_csv,
     setup_plot_style,
 )
+from .uncertainty import add_subtract, mul_div, power, uncertainty_for_equipment
 
 __all__ = [
     # Data processing

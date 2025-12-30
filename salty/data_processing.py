@@ -1,28 +1,13 @@
 """
-CSV parsing and stepwise titration data processing (DP Chemistry SL-aligned).
+Processes titration data from Logger Pro CSV exports.
 
-This module:
-- Extracts Logger Pro "Run X: ..." wide-format exports into tidy per-run DataFrames.
-- Aggregates repeated readings at the same delivered volume into a robust step pH estimate.
-- Computes derivatives for equivalence detection using x-aware methods:
-    * Preferred (SciPy): PCHIP interpolation + analytic derivatives evaluated at the step volumes.
-    * Fallback: finite-difference gradients on strictly increasing unique volume points.
+Extracts runs into per-run DataFrames, aggregates volume steps for robust pH estimates,
+and computes derivatives for equivalence detection using PCHIP or finite-difference methods.
 
-Key design choices for IB defensibility:
-- Volume binning is optional. If enabled, it should reflect the *recorded* volume resolution, not the burette uncertainty.
-- Step pH uses the median of the tail readings within each step as a robust proxy for an equilibrated reading.
-- Duplicate-x consolidation preserves chemistry and diagnostics:
-    * pH-like columns: median
-    * count-like columns: sum
-    * other numeric diagnostics: mean
+Supports optional volume binning and handles duplicate readings appropriately.
 """
 
 from __future__ import annotations
-
-# CHANGELOG:
-# - Defaulted volume binning to None and disabled auto-binning unless requested.
-# - Added step equilibration diagnostics (pH drift, optional pH vs time slope).
-# - Ensured duplicate-step aggregation preserves counts via summation.
 
 import importlib.util
 from typing import Dict, Optional
@@ -35,9 +20,7 @@ if HAVE_SCIPY:
     from scipy.interpolate import PchipInterpolator
 
 
-DEFAULT_VOLUME_BIN: Optional[float] = (
-    None  # Set e.g. 0.10 if your recorded volume resolution is 0.10 cm^3
-)
+DEFAULT_VOLUME_BIN: Optional[float] = None
 
 
 def _round_to_resolution(x: pd.Series, res: Optional[float]) -> pd.Series:
@@ -237,7 +220,6 @@ def aggregate_volume_steps(
 
         ph_step = float(np.median(tail))
         ph_step_sd = float(np.std(tail, ddof=1)) if len(tail) > 1 else 0.0
-        # DP-friendly equilibration proxy: median drift from first to last third.
         ph_drift = float(np.median(last_third) - np.median(first_third))
 
         ph_slope = np.nan

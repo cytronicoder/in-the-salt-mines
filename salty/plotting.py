@@ -1,31 +1,21 @@
 """
-Plotting module for titration analysis (IB IA-standard, interpretability-first).
+Creates professional plots for titration analysis.
 
-Updates in this revision:
-- Any units containing powers/subscripts/superscripts are LaTeX-wrapped so Matplotlib renders them correctly:
-  * cm^3, dm^-3, cm^-3, min^-1, pK_a, V_eq, etc.
-- Error bars are 50% opacity everywhere (raw curves, individual runs, and summary means).
-  * Markers remain opaque; only the error-bar artists are semi-transparent.
-- Titration curve interpolation remains scientifically appropriate: PCHIP (shape-preserving) when available.
+Generates titration curves with error bars, statistical summaries, and saves results to CSV.
 
-No captions/footnotes and no PDF output.
+Uses LaTeX for units, PCHIP interpolation for smooth curves, and semi-transparent error bars.
 """
 
 from __future__ import annotations
-
-# CHANGELOG:
-# - Standardized concentration uncertainty to worst-case IB rules with shared helpers.
-# - Applied delivered-volume uncertainty for burette x-error bars.
-# - Kept black/grey style while aligning summary equation uncertainty reporting.
 
 import os
 import re
 from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 import numpy as np
 import pandas as pd
+from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 
 from .uncertainty import (
     burette_delivered_uncertainty,
@@ -33,7 +23,6 @@ from .uncertainty import (
     round_value_to_uncertainty,
 )
 
-# Prefer PCHIP if available
 try:
     from scipy.interpolate import PchipInterpolator  # type: ignore
 
@@ -66,11 +55,6 @@ def _concentration_uncertainty(c: float) -> float:
     return unc
 
 
-# ----------------------------
-# Regression helper
-# ----------------------------
-
-
 def _linear_fit(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, float]:
     """Return (slope, intercept, R^2) for y = m x + b."""
     x = np.asarray(x, dtype=float)
@@ -86,11 +70,6 @@ def _linear_fit(x: np.ndarray, y: np.ndarray) -> Tuple[float, float, float]:
     ss_tot = np.sum((y - y.mean()) ** 2)
     r2 = 1 - ss_res / ss_tot if ss_tot > 0 else np.nan
     return float(m), float(b), float(r2)
-
-
-# ----------------------------
-# Scientifically sensible titration interpolation (PCHIP)
-# ----------------------------
 
 
 def _prepare_xy_for_interp(
@@ -152,11 +131,6 @@ def _titration_interpolated_curve(
     return x_dense, y_dense
 
 
-# ----------------------------
-# Plot style: Times/serif + mathtext for LaTeX fragments
-# ----------------------------
-
-
 def setup_plot_style():
     """High-legibility style for black-and-white report figures."""
     try:
@@ -194,12 +168,9 @@ def setup_plot_style():
     )
 
 
-# ----------------------------
-# Main plots
-# ----------------------------
-
-
-def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_raw_pH: bool = False) -> List[str]:
+def plot_titration_curves(
+    results: List[Dict], output_dir: str = "output", show_raw_pH: bool = False
+) -> List[str]:
     """
     For each run, saves ONE black-and-white figure with 3 panels:
     (1) pH vs Volume (with xerr and yerr) + PCHIP interpolation
@@ -213,14 +184,12 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
 
     out_paths: List[str] = []
 
-    # Instrument uncertainties (adjust to your apparatus)
-    burette_unc = 0.05  # cm^3 per reading
+    burette_unc = 0.05
     delivered_unc = burette_delivered_uncertainty(burette_unc)
-    ph_unc = 0.2  # pH
+    ph_unc = 0.2
 
-    # Error bar opacity (50% for bars/caps) everywhere
     bar_alpha = 0.50
-    ecolor_bar = (0, 0, 0, bar_alpha)  # RGBA
+    ecolor_bar = (0, 0, 0, bar_alpha)
 
     for i, res in enumerate(results):
         raw_df: pd.DataFrame = res["data"]
@@ -231,7 +200,6 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
         x_col = res.get("x_col", "Volume (cm³)")
         is_volume = (x_col == "Volume (cm³)") or ("Volume" in x_col)
 
-        # Labels: only wrap units with exponents/sub/superscripts in LaTeX
         x_label = r"Volume of NaOH added / cm$^3$" if is_volume else r"Time / min"
         deriv_label = (
             r"$\mathrm{d\,pH}/\mathrm{d}V$ / (pH cm$^{-3}$)"
@@ -242,9 +210,6 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.8))
         fig.suptitle(run_name, fontweight="bold", fontsize=32, y=0.90)
 
-        # -------------------------
-        # (1) Titration curve
-        # -------------------------
         if x_col not in raw_df.columns or "pH" not in raw_df.columns:
             plt.close(fig)
             continue
@@ -265,7 +230,7 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
                 ecolor=ecolor_bar,
                 elinewidth=1.6,
                 capsize=4,
-                alpha=1.0,  # markers opaque; bars/caps use RGBA ecolor for transparency
+                alpha=1.0,
                 label="Measurements",
             )
 
@@ -321,9 +286,6 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
 
         ax1.legend(loc="best")
 
-        # -------------------------
-        # (2) First derivative
-        # -------------------------
         if not step_df.empty and "dpH/dx" in step_df.columns:
             x_step = (
                 "Volume (cm³)"
@@ -373,9 +335,6 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
             ax2.set_xlim(ax1.get_xlim())
         ax2.legend(loc="best")
 
-        # -------------------------
-        # (3) Henderson-Hasselbalch diagnostic
-        # -------------------------
         if not buffer_df.empty and {"log10_ratio", "pH_step"}.issubset(
             buffer_df.columns
         ):
@@ -428,7 +387,6 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output", show_
         ax3.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
         ax3.legend(loc="best")
 
-        # Reduce vertical gap between suptitle and subplots
         fig.tight_layout(rect=[0.02, 0.02, 0.98, 0.955], w_pad=2.5)
 
         source_file = str(res.get("source_file", ""))
@@ -460,11 +418,9 @@ def plot_statistical_summary(
     setup_plot_style()
     os.makedirs(output_dir, exist_ok=True)
 
-    # 50% opacity for error bars in the summary plot as well
     bar_alpha = 0.50
     ecolor_bar = (0, 0, 0, bar_alpha)
 
-    # Max/min line opacity (50%)
     line_alpha = 0.50
     maxmin_color = (0, 0, 0, line_alpha)
 
@@ -511,7 +467,6 @@ def plot_statistical_summary(
         dtype=float,
     )
 
-    # Means
     ax.errorbar(
         x,
         y_mean,
@@ -524,12 +479,11 @@ def plot_statistical_summary(
         ecolor=ecolor_bar,
         elinewidth=1.8,
         capsize=4,
-        alpha=1.0,  # markers opaque; bars/caps use RGBA ecolor
+        alpha=1.0,
         label="Mean",
         zorder=10,
     )
 
-    # Individual runs (also 50% opacity error bars via ecolor)
     if "pKa (buffer regression)" in results_df.columns:
         first_individual_label = True
         conc_values = np.unique(x[np.isfinite(x)])
@@ -572,13 +526,12 @@ def plot_statistical_summary(
                 ecolor=ecolor_bar,
                 elinewidth=1.2,
                 capsize=3,
-                alpha=1.0,  # markers opaque; error bars are RGBA
+                alpha=1.0,
                 label="Individual runs" if first_individual_label else None,
                 zorder=5,
             )
             first_individual_label = False
 
-    # Best fit through means
     finite = np.isfinite(x) & np.isfinite(y_mean)
     m_best, b_best, r2 = np.nan, np.nan, np.nan
     if np.sum(finite) >= 2:
@@ -592,7 +545,6 @@ def plot_statistical_summary(
             label="Best fit (means)",
         )
 
-    # Max/min lines and slope uncertainty
     slope_unc = np.nan
     if np.sum(finite) >= 2:
         idx = np.argsort(x[finite])
@@ -604,14 +556,12 @@ def plot_statistical_summary(
         x1, y1, dx1, dy1 = float(xf[0]), float(yf[0]), float(xef[0]), float(yef[0])
         x2, y2, dx2, dy2 = float(xf[-1]), float(yf[-1]), float(xef[-1]), float(yef[-1])
 
-        # Max slope: maximize numerator, minimize denominator
         x1_max = x1 + dx1
         y1_min = y1 - dy1
         x2_min = x2 - dx2
         y2_max = y2 + dy2
         denom_max = x2_min - x1_max
 
-        # Min slope: minimize numerator, maximize denominator
         x1_min = x1 - dx1
         y1_max = y1 + dy1
         x2_max = x2 + dx2
@@ -644,7 +594,6 @@ def plot_statistical_summary(
             if np.isfinite(m_max) and np.isfinite(m_min):
                 slope_unc = 0.5 * (max(m_max, m_min) - min(m_max, m_min))
 
-    # Equation text bottom-left (math wrapped)
     if np.isfinite(m_best) and np.isfinite(b_best) and np.isfinite(r2):
         if np.isfinite(slope_unc):
             eq = (
