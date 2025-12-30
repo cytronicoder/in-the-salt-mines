@@ -13,6 +13,11 @@ No captions/footnotes and no PDF output.
 
 from __future__ import annotations
 
+# CHANGELOG:
+# - Standardized concentration uncertainty to worst-case IB rules with shared helpers.
+# - Applied delivered-volume uncertainty for burette x-error bars.
+# - Kept black/grey style while aligning summary equation uncertainty reporting.
+
 import os
 import re
 from typing import Dict, List, Tuple
@@ -22,6 +27,12 @@ from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 import numpy as np
 import pandas as pd
 
+from .uncertainty import (
+    burette_delivered_uncertainty,
+    combine_uncertainties,
+    round_value_to_uncertainty,
+)
+
 # Prefer PCHIP if available
 try:
     from scipy.interpolate import PchipInterpolator  # type: ignore
@@ -30,30 +41,6 @@ try:
 except Exception:
     PchipInterpolator = None
     _HAS_PCHIP = False
-
-
-# ----------------------------
-# Uncertainty helpers (IB-style)
-# ----------------------------
-
-
-def _round_sigfig(x: float, sig: int = 1) -> float:
-    """Round x to sig significant figures."""
-    if x == 0 or not np.isfinite(x):
-        return float(x)
-    return float(round(x, sig - int(np.floor(np.log10(abs(x)))) - 1))
-
-
-def _unc_sigfig(unc: float) -> float:
-    """
-    IB convention:
-    - uncertainties usually 1 s.f.
-    - exception: if leading digit is 1, use 2 s.f.
-    """
-    if unc == 0 or not np.isfinite(unc):
-        return float(unc)
-    lead = int(abs(unc) / (10 ** np.floor(np.log10(abs(unc)))))
-    return _round_sigfig(unc, sig=2 if lead == 1 else 1)
 
 
 def _concentration_uncertainty(c: float) -> float:
@@ -74,8 +61,9 @@ def _concentration_uncertainty(c: float) -> float:
 
     rel_unc_m = delta_m / m
     rel_unc_v = delta_v / v
-    rel_unc_c = (rel_unc_m**2 + rel_unc_v**2) ** 0.5
-    return _unc_sigfig(float(c * rel_unc_c))
+    rel_unc_c = combine_uncertainties([rel_unc_m, rel_unc_v], method="worst_case")
+    _, unc = round_value_to_uncertainty(c, float(c * rel_unc_c))
+    return unc
 
 
 # ----------------------------
@@ -226,7 +214,8 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> Li
     out_paths: List[str] = []
 
     # Instrument uncertainties (adjust to your apparatus)
-    burette_unc = 0.05  # cm^3
+    burette_unc = 0.05  # cm^3 per reading
+    delivered_unc = burette_delivered_uncertainty(burette_unc)
     ph_unc = 0.2  # pH
 
     # Error bar opacity (50% for bars/caps) everywhere
@@ -266,7 +255,7 @@ def plot_titration_curves(results: List[Dict], output_dir: str = "output") -> Li
         ax1.errorbar(
             x_raw,
             y_raw,
-            xerr=(burette_unc if is_volume else None),
+            xerr=(delivered_unc if is_volume else None),
             yerr=ph_unc,
             fmt="o",
             markersize=6,
@@ -482,11 +471,15 @@ def plot_statistical_summary(
             ).to_numpy(dtype=float)
             vals = vals[np.isfinite(vals)]
             if len(vals) >= 2:
-                return _unc_sigfig(0.5 * (np.max(vals) - np.min(vals)))
+                _, unc = round_value_to_uncertainty(
+                    float(np.mean(vals)), 0.5 * (np.max(vals) - np.min(vals))
+                )
+                return unc
             if len(vals) == 1 and "pKa uncertainty (ΔpKa)" in subset.columns:
                 v = subset["pKa uncertainty (ΔpKa)"].iloc[0]
                 if pd.notna(v) and np.isfinite(v):
-                    return _unc_sigfig(float(v))
+                    _, unc = round_value_to_uncertainty(float(vals[0]), float(v))
+                    return unc
         return 0.0
 
     yerr = np.array(
