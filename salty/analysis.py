@@ -733,7 +733,7 @@ def build_summary_plot_data(
     missing = [c for c in required_cols if c not in stats_df.columns]
     if missing:
         raise KeyError(
-            f"stats_df must contain {required_cols} columns; missing: {missing}."
+            f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
         )
 
     x = pd.to_numeric(stats_df[cols.nacl], errors="coerce").to_numpy(dtype=float)
