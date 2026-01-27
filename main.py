@@ -91,6 +91,7 @@ def main():
     logging.info("Output directory ensured: %s", output_dir)
 
     import glob
+
     png_files = glob.glob(os.path.join(output_dir, "*.png"))
     for png in png_files:
         os.remove(png)
@@ -102,13 +103,22 @@ def main():
     os.makedirs(without_raw_dir, exist_ok=True)
 
     step_start = time.time()
-    titration_plot_paths_with = plot_titration_curves(results, with_raw_dir, show_raw_pH=True)
-    titration_plot_paths_without = plot_titration_curves(results, without_raw_dir, show_raw_pH=False)
-    summary_plot_path_with = plot_statistical_summary(stats_df, results_df, with_raw_dir)
-    summary_plot_path_without = plot_statistical_summary(stats_df, results_df, without_raw_dir)
+    titration_plot_paths_with = plot_titration_curves(
+        results, with_raw_dir, show_raw_pH=True
+    )
+    titration_plot_paths_without = plot_titration_curves(
+        results, without_raw_dir, show_raw_pH=False
+    )
+    summary_plot_path_with = plot_statistical_summary(
+        stats_df, results_df, with_raw_dir
+    )
+    summary_plot_path_without = plot_statistical_summary(
+        stats_df, results_df, without_raw_dir
+    )
     step_duration = time.time() - step_start
     logging.info(
-        "Generated %d individual titration curve figures in each folder", len(titration_plot_paths_with)
+        "Generated %d individual titration curve figures in each folder",
+        len(titration_plot_paths_with),
     )
 
     step_start = time.time()

@@ -141,6 +141,3 @@ def _require_same_unit(items: Mapping[str, Quantity]) -> str:
     if len(uniq) > 1:
         raise ValueError(f"Addition/subtraction requires consistent units; got {uniq}")
     return uniq[0] if uniq else ""
-
-
-

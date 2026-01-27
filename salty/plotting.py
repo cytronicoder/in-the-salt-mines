@@ -218,6 +218,16 @@ def plot_titration_curves(
         y_raw = pd.to_numeric(raw_df["pH"], errors="coerce").to_numpy(dtype=float)
 
         if show_raw_pH:
+            temp_df = pd.DataFrame({"x": x_raw, "y": y_raw})
+            temp_df["x"] = pd.to_numeric(temp_df["x"], errors="coerce")
+            temp_df["y"] = pd.to_numeric(temp_df["y"], errors="coerce")
+            temp_df = temp_df[
+                temp_df["x"].notna() & temp_df["y"].notna()
+            ].drop_duplicates()
+            x_raw = temp_df["x"].to_numpy(dtype=float)
+            y_raw = temp_df["y"].to_numpy(dtype=float)
+
+        if show_raw_pH:
             ax1.errorbar(
                 x_raw,
                 y_raw,
@@ -230,7 +240,7 @@ def plot_titration_curves(
                 ecolor=ecolor_bar,
                 elinewidth=1.6,
                 capsize=4,
-                alpha=1.0,
+                alpha=0.05,
                 label="Measurements",
             )
 
