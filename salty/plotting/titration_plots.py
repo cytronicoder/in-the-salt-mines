@@ -148,7 +148,11 @@ def plot_titration_curves(
         veq = res.get("veq_used", np.nan)
         ph_at_veq = np.nan
         ph_at_half = np.nan
-        if np.isfinite(veq) and not dense_df.empty:
+        if (
+            np.isfinite(veq)
+            and not dense_df.empty
+            and {"Volume (cm³)", "pH_interp"}.issubset(dense_df.columns)
+        ):
             x_smooth = pd.to_numeric(
                 dense_df["Volume (cm³)"], errors="coerce"
             ).to_numpy(dtype=float)
