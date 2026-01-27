@@ -23,8 +23,8 @@ def fit_henderson_hasselbalch(
     Henderson–Hasselbalch is used here as an operational model to compare
     systematic shifts in pKa_app with ionic strength.
     """
-    if step_df.empty or "Volume (cm³)" not in step_df.columns:
-        raise ValueError("Step data must include Volume (cm³) for regression.")
+    if step_df.empty or "Volume (cm³)" not in step_df.columns or "pH_step" not in step_df.columns:
+        raise ValueError("Step data must include Volume (cm³) and pH_step for regression.")
     if not np.isfinite(veq) or veq <= 0:
         raise ValueError("Equivalence volume must be positive and finite.")
     if not np.isfinite(pka_app_guess):
