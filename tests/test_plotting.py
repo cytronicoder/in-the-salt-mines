@@ -3,7 +3,9 @@ import os
 import numpy as np
 import pandas as pd
 
+from salty.analysis import build_summary_plot_data
 from salty.plotting import plot_statistical_summary, plot_titration_curves
+from salty.schema import ResultColumns
 
 
 def make_dummy_results():
@@ -37,7 +39,8 @@ def make_dummy_results():
             }
         ),
         "slope_reg": 1.0,
-        "pka_reg": 3.6,
+        "pka_app": 3.6,
+        "r2_reg": 0.99,
     }
     return [res]
 
@@ -49,10 +52,11 @@ def test_plot_titration_curves(tmp_path):
 
 
 def test_plot_statistical_summary(tmp_path):
+    cols = ResultColumns()
     stats_df = pd.DataFrame(
         {
-            "NaCl Concentration (M)": [0.0, 0.1],
-            "Mean pKa": [5.0, 4.9],
+            cols.nacl: [0.0, 0.1],
+            "Mean Apparent pKa": [5.0, 4.9],
             "Uncertainty": [0.05, 0.07],
             "n": [3, 3],
         }
@@ -60,11 +64,12 @@ def test_plot_statistical_summary(tmp_path):
     results_df = pd.DataFrame(
         {
             "Run": ["r1", "r2"],
-            "NaCl Concentration (M)": [0.0, 0.1],
-            "pKa (buffer regression)": [5.0, 4.9],
-            "pKa uncertainty (ΔpKa)": [0.05, 0.07],
+            cols.nacl: [0.0, 0.1],
+            cols.pka_app: [5.0, 4.9],
+            cols.pka_unc: [0.05, 0.07],
         }
     )
-    out = plot_statistical_summary(stats_df, results_df, output_dir=str(tmp_path))
+    summary = build_summary_plot_data(stats_df, results_df)
+    out = plot_statistical_summary(summary, output_dir=str(tmp_path))
     assert out.endswith("statistical_summary.png")
     assert os.path.exists(out)

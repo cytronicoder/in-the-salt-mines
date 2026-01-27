@@ -1,11 +1,12 @@
 """
 A Python package for analyzing weak acid-strong base titration data.
 
-Determines equivalence points and apparent pKa values under varying ionic strength conditions.
+Determines equivalence points and apparent pKa (pKa_app) values under varying
+ionic strength conditions.
 
 Modules:
     - data_processing: Loads and processes titration data from CSV files.
-    - analysis: Analyzes titration runs, calculates pKa, and estimates uncertainties.
+    - analysis: Analyzes titration runs, calculates pKa_app, and estimates uncertainties.
     - plotting: Creates publication-quality plots and saves results.
     - uncertainty: Handles uncertainty propagation using IB DP rules.
 """
@@ -15,6 +16,7 @@ __author__ = "Zeyu (Peter) Yao"
 
 from .analysis import (
     analyze_titration,
+    build_summary_plot_data,
     calculate_statistics,
     create_results_dataframe,
     detect_equivalence_point,
@@ -22,12 +24,8 @@ from .analysis import (
     process_all_files,
 )
 from .data_processing import extract_runs, load_titration_data
-from .plotting import (
-    plot_statistical_summary,
-    plot_titration_curves,
-    save_data_to_csv,
-    setup_plot_style,
-)
+from .output import save_data_to_csv
+from .plotting import plot_statistical_summary, plot_titration_curves, setup_plot_style
 from .uncertainty import (
     burette_delivered_uncertainty,
     combine_uncertainties,
@@ -44,6 +42,7 @@ __all__ = [
     "process_all_files",
     "create_results_dataframe",
     "calculate_statistics",
+    "build_summary_plot_data",
     # Plotting
     "setup_plot_style",
     "plot_titration_curves",
