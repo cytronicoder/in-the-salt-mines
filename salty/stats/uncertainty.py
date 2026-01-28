@@ -212,11 +212,12 @@ def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> 
         # value==0 and uncertainty==0
         out_val = 0.0
         out_unc = 0.0
+        text = f"Δy/y = {abs(exponent):.3g}·(Δx/x) = 0 (value=0, uncertainty=0)"
     else:
         out_val = value**exponent
         rel = abs(exponent) * (uncertainty / abs(value))
         out_unc = abs(out_val) * rel
-    text = f"Δy/y = {abs(exponent):.3g}·(Δx/x) = {abs(exponent):.3g}·({uncertainty:.3g}/{abs(value):.3g})"
+        text = f"Δy/y = {abs(exponent):.3g}·(Δx/x) = {abs(exponent):.3g}·({uncertainty:.3g}/{abs(value):.3g})"
     return {"value": out_val, "uncertainty": out_unc, "unit": unit, "text": text}
 
 
