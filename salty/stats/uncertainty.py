@@ -169,14 +169,14 @@ def mul_div(
 
     num_vals = [float(v[0]) for v in values.values()]
     den_vals = [float(v[0]) for v in uncertainties.values()]
-    
+
     # Guard against zero or non-finite values in denominators and numerators
     for v in num_vals + den_vals:
         if not np.isfinite(v):
             raise ValueError(f"Non-finite value in multiplication/division: {v}")
         if v == 0:
             raise ValueError(f"Zero value in multiplication/division: {v}")
-    
+
     value = float(np.prod(num_vals) / np.prod(den_vals))
 
     rel_terms = [abs(float(v[1]) / float(v[0])) for v in values.values()]
