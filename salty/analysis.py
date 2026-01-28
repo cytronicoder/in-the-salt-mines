@@ -567,7 +567,7 @@ def analyze_titration(
         "pka_app_rounded": pka_round,
         "pka_app_uncertainty_rounded": pka_unc_round,
         "slope_reg": buffer_fit.get("slope_reg", np.nan),
-        "r2_reg": buffer_fit.get("r2", np.nan),
+        "r2_reg": buffer_fit.get("r2_reg", np.nan),
         "x_col": x_col,
         "data": df,
         "step_data": step_df,

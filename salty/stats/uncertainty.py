@@ -199,7 +199,17 @@ def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> 
     value = float(value)
     uncertainty = abs(float(uncertainty))
     exponent = float(exponent)
+    
+    # Reject value==0 with non-zero uncertainty (similar to mul_div's zero guard)
+    # Computing worst-case uncertainty requires evaluating endpoints (value ± uncertainty)^exponent
+    if value == 0 and uncertainty > 0:
+        raise ValueError(
+            f"Cannot compute power uncertainty for value=0 with non-zero uncertainty={uncertainty}. "
+            "Use endpoint propagation for worst-case bound."
+        )
+    
     if value == 0:
+        # value==0 and uncertainty==0
         out_val = 0.0
         out_unc = 0.0
     else:
