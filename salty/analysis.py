@@ -517,9 +517,21 @@ def analyze_titration(
             "buffer_region": pd.DataFrame(),
         }
 
-    buffer_fit = fit_henderson_hasselbalch(
-        step_df, veq_used, pka_app_guess=half_eq_pH
-    )
+    try:
+        buffer_fit = fit_henderson_hasselbalch(
+            step_df, veq_used, pka_app_guess=half_eq_pH
+        )
+    except ValueError as e:
+        return {
+            "run_name": run_name,
+            "skip_reason": f"Buffer region regression failed: {e}",
+            "x_col": x_col,
+            "data": df,
+            "step_data": step_df,
+            "dense_curve": pd.DataFrame(),
+            "buffer_region": pd.DataFrame(),
+        }
+    
     buffer_df = buffer_fit.get("buffer_df", pd.DataFrame())
 
     pka_app = float(buffer_fit.get("pka_app", np.nan))
