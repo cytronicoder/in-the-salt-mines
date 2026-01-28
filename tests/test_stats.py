@@ -41,7 +41,7 @@ def test_create_results_dataframe_and_columns():
     assert set(df.columns) >= {
         "Run",
         cols.nacl,
-        "Apparent pKa (buffer regression)",
+        cols.pka_app,
         cols.pka_unc,
         "Equivalence QC Pass",
         "Veq (used)",

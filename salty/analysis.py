@@ -403,47 +403,6 @@ def _veq_uncertainty(
     return float(combine_uncertainties([res_term, burette_term], method=method))
 
 
-def _pka_app_unc_from_half_eq(
-    interpolator: Dict,
-    veq: float,
-    veq_unc: float,
-    ph_rand: float,
-    ph_sys: float,
-    method: str = "worst_case",
-) -> float:
-    if not (
-        interpolator
-        and "func" in interpolator
-        and np.isfinite(veq)
-        and np.isfinite(veq_unc)
-        and veq > 0
-    ):
-        terms = [t for t in [ph_rand, ph_sys] if np.isfinite(t) and t > 0]
-        return float(combine_uncertainties(terms, method=method)) if terms else np.nan
-
-    v0 = veq / 2.0
-    v_plus = (veq + veq_unc) / 2.0
-    v_minus = max((veq - veq_unc) / 2.0, 0.0)
-
-    p0 = float(interpolator["func"](v0))
-    pp = float(interpolator["func"](v_plus))
-    pm = float(interpolator["func"](v_minus))
-
-    sens = np.nan
-    if np.isfinite(pp) and np.isfinite(pm):
-        sens = 0.5 * abs(pp - pm)
-    elif np.isfinite(pp) and np.isfinite(p0):
-        sens = abs(pp - p0)
-    elif np.isfinite(pm) and np.isfinite(p0):
-        sens = abs(pm - p0)
-
-    terms = []
-    for t in (sens, ph_rand, ph_sys):
-        if np.isfinite(t) and t > 0:
-            terms.append(float(t))
-    return float(combine_uncertainties(terms, method=method)) if terms else np.nan
-
-
 def _pka_app_unc_from_buffer_fit(
     step_df: pd.DataFrame,
     veq: float,
@@ -509,7 +468,6 @@ def analyze_titration(
     smooth_for_derivative: bool = True,
     savgol_window: int = 7,
     polyorder: int = 2,
-    buffer_window: Tuple[float, float] = (0.2, 0.8),
 ) -> Dict:
     step_df = aggregate_volume_steps(df)
     if step_df.empty:
@@ -549,11 +507,31 @@ def analyze_titration(
     )
 
     if not np.isfinite(half_eq_pH):
-        raise ValueError("Half-equivalence pH required for buffer-region selection.")
+        return {
+            "run_name": run_name,
+            "skip_reason": "Half-equivalence pH required for buffer-region selection",
+            "x_col": x_col,
+            "data": df,
+            "step_data": step_df,
+            "dense_curve": dense_curve,
+            "buffer_region": pd.DataFrame(),
+        }
 
-    buffer_fit = fit_henderson_hasselbalch(
-        step_df, veq_used, pka_app_guess=half_eq_pH
-    )
+    try:
+        buffer_fit = fit_henderson_hasselbalch(
+            step_df, veq_used, pka_app_guess=half_eq_pH
+        )
+    except ValueError as e:
+        return {
+            "run_name": run_name,
+            "skip_reason": f"Buffer region regression failed: {e}",
+            "x_col": x_col,
+            "data": df,
+            "step_data": step_df,
+            "dense_curve": dense_curve,
+            "buffer_region": pd.DataFrame(),
+        }
+
     buffer_df = buffer_fit.get("buffer_df", pd.DataFrame())
 
     pka_app = float(buffer_fit.get("pka_app", np.nan))
@@ -657,7 +635,6 @@ def create_results_dataframe(results):
                 "Veq (used, rounded)": res.get("veq_used_rounded", np.nan),
                 "Veq uncertainty (rounded)": res.get("veq_uncertainty_rounded", np.nan),
                 "Veq method": res.get("veq_method", ""),
-                "Apparent pKa (buffer regression)": res.get("pka_app", np.nan),
                 "Slope (buffer fit)": res.get("slope_reg", np.nan),
                 "R2 (buffer fit)": res.get("r2_reg", np.nan),
                 "Source File": res.get("source_file", ""),

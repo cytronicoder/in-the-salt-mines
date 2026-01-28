@@ -154,6 +154,13 @@ def mul_div(
             raise ValueError("uncertainties list required with list-based values.")
         if len(values) != len(uncertainties):
             raise ValueError("values and uncertainties must be the same length.")
+        # Guard against zero or non-finite values
+        # Zero values are not allowed because relative uncertainty (u/v) requires division by value
+        for v, u in zip(values, uncertainties):
+            if not np.isfinite(v) or not np.isfinite(u):
+                raise ValueError(f"Non-finite value or uncertainty: {v}, {u}")
+            if v == 0:
+                raise ValueError(f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}")
         rel = sum(abs(u / v) for v, u in zip(values, uncertainties))
         value = float(np.prod(values)) if values else math.nan
         return abs(value) * rel
@@ -163,6 +170,22 @@ def mul_div(
 
     num_vals = [float(v[0]) for v in values.values()]
     den_vals = [float(v[0]) for v in uncertainties.values()]
+    num_uncs = [float(v[1]) for v in values.values()]
+    den_uncs = [float(v[1]) for v in uncertainties.values()]
+
+    # Guard against zero or non-finite values in denominators and numerators
+    # Zero values are not allowed because relative uncertainty (u/v) requires division by value
+    for v in num_vals + den_vals:
+        if not np.isfinite(v):
+            raise ValueError(f"Non-finite value in multiplication/division: {v}")
+        if v == 0:
+            raise ValueError(f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}")
+
+    # Guard against non-finite uncertainties
+    for u in num_uncs + den_uncs:
+        if not np.isfinite(u):
+            raise ValueError(f"Non-finite uncertainty in multiplication/division: {u}")
+
     value = float(np.prod(num_vals) / np.prod(den_vals))
 
     rel_terms = [abs(float(v[1]) / float(v[0])) for v in values.values()]
