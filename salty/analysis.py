@@ -714,6 +714,14 @@ def build_summary_plot_data(
             f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
         )
 
+    # Validate results_df columns
+    required_results_cols = [cols.nacl, cols.pka_app]
+    missing_results = [c for c in required_results_cols if c not in results_df.columns]
+    if missing_results:
+        raise KeyError(
+            f"results_df is missing required columns. Expected: {required_results_cols}, missing: {missing_results}."
+        )
+
     x = pd.to_numeric(stats_df[cols.nacl], errors="coerce").to_numpy(dtype=float)
     y_mean = pd.to_numeric(stats_df["Mean Apparent pKa"], errors="coerce").to_numpy(
         dtype=float

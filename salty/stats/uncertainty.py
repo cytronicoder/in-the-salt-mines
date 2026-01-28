@@ -226,6 +226,16 @@ def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> 
         out_unc = 0.0
         text = f"Δy/y = {abs(exponent):.3g}·(Δx/x) = 0 (value=0, uncertainty=0)"
     else:
+        # Validate that negative values with non-integer exponents won't produce complex results
+        if value < 0:
+            # Check if exponent is close to an integer (within floating-point tolerance)
+            rounded_exp = round(exponent)
+            if not np.isclose(exponent, rounded_exp, rtol=1e-9, atol=1e-6):
+                raise ValueError(
+                    f"Cannot compute power for negative value={value} with non-integer exponent={exponent}. "
+                    "This would produce a complex number."
+                )
+
         out_val = value**exponent
         rel = abs(exponent) * (uncertainty / abs(value))
         out_unc = abs(out_val) * rel

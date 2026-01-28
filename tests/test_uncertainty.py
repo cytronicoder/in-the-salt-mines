@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from salty.uncertainty import add_subtract, mul_div, power, uncertainty_for_equipment
 
 
@@ -35,3 +37,21 @@ def test_power_simple():
     assert math.isclose(out["value"], 4.0)
     rel = abs(2.0) * (0.01 / 2.0)
     assert math.isclose(out["uncertainty"], abs(4.0) * rel)
+
+
+def test_power_negative_with_integer_exponent():
+    """Test that power() works with negative values and integer exponents."""
+    out = power(-2.0, 0.01, 2.0, "cm")
+    assert math.isclose(out["value"], 4.0)
+    rel = abs(2.0) * (0.01 / abs(-2.0))
+    assert math.isclose(out["uncertainty"], abs(4.0) * rel)
+
+
+def test_power_negative_with_non_integer_exponent():
+    """Test that power() raises ValueError for negative values with non-integer exponents."""
+    with pytest.raises(ValueError, match="Cannot compute power for negative value.*non-integer exponent.*complex number"):
+        power(-2.0, 0.01, 0.5)
+
+    with pytest.raises(ValueError, match="Cannot compute power for negative value.*non-integer exponent.*complex number"):
+        power(-2.0, 0.01, 1.5)
+
