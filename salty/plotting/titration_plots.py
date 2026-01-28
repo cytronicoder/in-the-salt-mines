@@ -58,7 +58,7 @@ def plot_titration_curves(
 ) -> List[str]:
     """
     For each run, saves ONE black-and-white figure with 3 panels:
-    (1) pH vs Volume (with xerr and yerr) + precomputed interpolation curve
+    (1) pH vs Volume (raw measurements styled as errorbar markers) + precomputed interpolation curve
     (2) First derivative vs Volume
     (3) Henderson-Hasselbalch diagnostic (scatter + precomputed best-fit)
 
@@ -164,19 +164,21 @@ def plot_titration_curves(
                 ph_at_veq = y_smooth[idx_veq]
                 idx_half = int(np.nanargmin(np.abs(x_smooth - veq / 2)))
                 ph_at_half = y_smooth[idx_half]
+                veq_label = f"Equivalence point: pH {ph_at_veq:.2f}" if np.isfinite(ph_at_veq) else "Equivalence point"
+                half_veq_label = f"Half-equivalence point: pH {ph_at_half:.2f}" if np.isfinite(ph_at_half) else "Half-equivalence point"
                 ax1.axvline(
                     veq,
                     color="black",
                     linestyle="--",
                     linewidth=1.8,
-                    label=f"Equivalence point: pH {ph_at_veq:.2f}",
+                    label=veq_label,
                 )
                 ax1.axvline(
                     veq / 2,
                     color="black",
                     linestyle=":",
                     linewidth=1.8,
-                    label=f"Half-equivalence point: pH {ph_at_half:.2f}",
+                    label=half_veq_label,
                 )
 
         ax1.set_title("Titration curve", fontweight="bold")
@@ -218,19 +220,21 @@ def plot_titration_curves(
                     label="First derivative",
                 )
                 if np.isfinite(veq):
+                    veq_label = f"Equivalence point: pH {ph_at_veq:.2f}" if np.isfinite(ph_at_veq) else "Equivalence point"
+                    half_veq_label = f"Half-equivalence point: pH {ph_at_half:.2f}" if np.isfinite(ph_at_half) else "Half-equivalence point"
                     ax2.axvline(
                         veq,
                         color="black",
                         linestyle="--",
                         linewidth=1.6,
-                        label=f"Equivalence point: pH {ph_at_veq:.2f}",
+                        label=veq_label,
                     )
                     ax2.axvline(
                         veq / 2,
                         color="black",
                         linestyle=":",
                         linewidth=1.6,
-                        label=f"Half-equivalence point: pH {ph_at_half:.2f}",
+                        label=half_veq_label,
                     )
                 ax2.axhline(0, color="black", linewidth=1.0, alpha=0.6)
 

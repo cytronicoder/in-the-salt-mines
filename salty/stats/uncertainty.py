@@ -32,7 +32,7 @@ def uncertainty_for_equipment(equipment: str, value: float | None = None) -> flo
     """
     Return absolute uncertainty for named lab equipment.
 
-    (e.g. 'pH meter', 'burette').
+    Examples: 'Vernier pH Sensor PH-BTA', '50.0 cm3 burette', '250 cm3 beaker'.
     """
     entry = _EQUIPMENT_UNCERTAINTIES.get(equipment)
     if entry is None:

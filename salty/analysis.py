@@ -729,9 +729,11 @@ def build_summary_plot_data(
     Build plotting inputs without computing statistics inside plotting functions.
     """
     cols = ResultColumns()
-    if cols.nacl not in stats_df.columns or "Mean Apparent pKa" not in stats_df.columns:
+    required_cols = [cols.nacl, "Mean Apparent pKa", "Uncertainty"]
+    missing = [c for c in required_cols if c not in stats_df.columns]
+    if missing:
         raise KeyError(
-            f"stats_df must contain '{cols.nacl}' and 'Mean Apparent pKa' columns."
+            f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
         )
 
     x = pd.to_numeric(stats_df[cols.nacl], errors="coerce").to_numpy(dtype=float)
