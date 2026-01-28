@@ -105,7 +105,6 @@ def test_build_summary_plot_data_missing_results_df_columns():
             "SomeOtherColumn": [1, 2],
         }
     )
-    
     with pytest.raises(KeyError, match="results_df is missing required columns"):
         build_summary_plot_data(stats_df, results_df_missing_nacl)
 
