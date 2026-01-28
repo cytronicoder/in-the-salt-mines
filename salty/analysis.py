@@ -531,7 +531,7 @@ def analyze_titration(
             "dense_curve": pd.DataFrame(),
             "buffer_region": pd.DataFrame(),
         }
-    
+
     buffer_df = buffer_fit.get("buffer_df", pd.DataFrame())
 
     pka_app = float(buffer_fit.get("pka_app", np.nan))
