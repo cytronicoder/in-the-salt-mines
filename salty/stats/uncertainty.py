@@ -180,7 +180,7 @@ def mul_div(
             raise ValueError(f"Non-finite value in multiplication/division: {v}")
         if v == 0:
             raise ValueError(f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}")
-    
+
     # Guard against non-finite uncertainties
     for u in num_uncs + den_uncs:
         if not np.isfinite(u):
