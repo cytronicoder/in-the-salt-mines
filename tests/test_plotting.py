@@ -73,3 +73,40 @@ def test_plot_statistical_summary(tmp_path):
     out = plot_statistical_summary(summary, output_dir=str(tmp_path))
     assert out.endswith("statistical_summary.png")
     assert os.path.exists(out)
+
+
+def test_build_summary_plot_data_missing_results_df_columns():
+    """Test that build_summary_plot_data raises KeyError when results_df is missing required columns."""
+    import pytest
+    
+    cols = ResultColumns()
+    stats_df = pd.DataFrame(
+        {
+            cols.nacl: [0.0, 0.1],
+            "Mean Apparent pKa": [5.0, 4.9],
+            "Uncertainty": [0.05, 0.07],
+        }
+    )
+    
+    # Missing pka_app column
+    results_df_missing_pka = pd.DataFrame(
+        {
+            cols.nacl: [0.0, 0.1],
+            "SomeOtherColumn": [1, 2],
+        }
+    )
+    
+    with pytest.raises(KeyError, match="results_df is missing required columns"):
+        build_summary_plot_data(stats_df, results_df_missing_pka)
+    
+    # Missing nacl column
+    results_df_missing_nacl = pd.DataFrame(
+        {
+            cols.pka_app: [5.0, 4.9],
+            "SomeOtherColumn": [1, 2],
+        }
+    )
+    
+    with pytest.raises(KeyError, match="results_df is missing required columns"):
+        build_summary_plot_data(stats_df, results_df_missing_nacl)
+

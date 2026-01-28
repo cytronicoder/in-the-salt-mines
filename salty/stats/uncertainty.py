@@ -235,7 +235,7 @@ def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> 
                     f"Cannot compute power for negative value={value} with non-integer exponent={exponent}. "
                     "This would produce a complex number."
                 )
-        
+
         out_val = value**exponent
         rel = abs(exponent) * (uncertainty / abs(value))
         out_unc = abs(out_val) * rel
