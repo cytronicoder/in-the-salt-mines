@@ -148,12 +148,18 @@ def mul_div(
     numerator: Mapping[str, Tuple[float, float, str]] | list[float],
     denominator: Mapping[str, Tuple[float, float, str]] | list[float] | None = None,
 ) -> dict | float:
-    """Worst-case uncertainty for multiplication/division."""
+    """Worst-case uncertainty for multiplication/division.
+    
+    This function supports two APIs:
+    - List API: first param is list of values, second is list of uncertainties
+    - Mapping API: first param is numerator factors, second is denominator factors
+    """
     if isinstance(numerator, list):
+        # List API: first param = values, second = uncertainties
         if denominator is None or isinstance(denominator, dict):
-            raise ValueError("denominator list required with list-based numerator.")
+            raise ValueError("uncertainties list required with list-based values.")
         if len(numerator) != len(denominator):
-            raise ValueError("numerator and denominator must be the same length.")
+            raise ValueError("values and uncertainties must be the same length.")
         # Guard against zero or non-finite values
         # Zero values are not allowed because relative uncertainty (u/v) requires division by value
         for v, u in zip(numerator, denominator):
