@@ -79,8 +79,16 @@ def slope_uncertainty_from_endpoints(
     """
     Conservative slope uncertainty from endpoint extremes.
 
-    This is a systematic (worst-case) estimate based on endpoint error boxes,
-    not a statistical standard deviation.
+    UNCERTAINTY TYPE: SYSTEMATIC
+    =============================
+    This is a worst-case estimate based on endpoint error boxes,
+    NOT a statistical standard deviation.
+
+    Represents the systematic uncertainty in slope arising from
+    propagation of measurement uncertainties in x and y coordinates
+    of the first and last data points.
+
+    Used for reporting slope uncertainty in pKa_app vs. concentration plots.
     """
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)

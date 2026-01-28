@@ -1,5 +1,16 @@
 """
 Uncertainty propagation utilities following IB DP worst-case rules.
+
+UNCERTAINTY CLASSIFICATION:
+===========================
+All uncertainties computed here are SYSTEMATIC uncertainties representing:
+- Equipment limitations (burette, pH meter, balance, flask)
+- Propagation of measurement uncertainties through calculations
+- Half-range of trial-to-trial variations
+
+These are NOT statistical uncertainties (standard deviations or standard errors).
+They represent worst-case bounds on measured/calculated quantities,
+consistent with IB Chemistry Data Processing methodology.
 """
 
 from __future__ import annotations
@@ -149,12 +160,12 @@ def mul_div(
     uncertainties: Mapping[str, Tuple[float, float, str]] | list[float] | None = None,
 ) -> dict | float:
     """Worst-case uncertainty for multiplication/division.
-    
+
     Supports two calling conventions:
     1. List API: mul_div(values_list, uncertainties_list)
        - First param: list of numeric values to multiply
        - Second param: list of uncertainties corresponding to each value
-       
+
     2. Mapping API: mul_div(numerator_mapping, denominator_mapping)
        - First param: dict of numerator factors {name: (value, uncertainty, unit)}
        - Second param: dict of denominator factors {name: (value, uncertainty, unit)}
@@ -171,7 +182,9 @@ def mul_div(
             if not np.isfinite(v) or not np.isfinite(u):
                 raise ValueError(f"Non-finite value or uncertainty: {v}, {u}")
             if v == 0:
-                raise ValueError(f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}")
+                raise ValueError(
+                    f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}"
+                )
         rel = sum(abs(u / v) for v, u in zip(values, uncertainties))
         value = float(np.prod(values)) if values else math.nan
         return abs(value) * rel
@@ -191,7 +204,9 @@ def mul_div(
         if not np.isfinite(v):
             raise ValueError(f"Non-finite value in multiplication/division: {v}")
         if v == 0:
-            raise ValueError(f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}")
+            raise ValueError(
+                f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}"
+            )
 
     # Guard against non-finite uncertainties
     for u in num_uncs + den_uncs:
@@ -206,12 +221,14 @@ def mul_div(
     return {"value": value, "uncertainty": abs(value) * rel}
 
 
-def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> dict | float:
+def power(
+    value: float, uncertainty: float, exponent: float, unit: str = ""
+) -> dict | float:
     """Worst-case uncertainty propagation for powers."""
     value = float(value)
     uncertainty = abs(float(uncertainty))
     exponent = float(exponent)
-    
+
     # Reject value==0 with non-zero uncertainty (similar to mul_div's zero guard)
     # Computing worst-case uncertainty requires evaluating endpoints (value ± uncertainty)^exponent
     if value == 0 and uncertainty > 0:
@@ -219,7 +236,7 @@ def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> 
             f"Cannot compute power uncertainty for value=0 with non-zero uncertainty={uncertainty}. "
             "Use endpoint propagation for worst-case bound."
         )
-    
+
     if value == 0:
         # value==0 and uncertainty==0
         out_val = 0.0

@@ -63,7 +63,28 @@ def plot_titration_curves(
     (3) Henderson-Hasselbalch diagnostic (scatter + precomputed best-fit)
 
     Returns list of PNG paths.
+
+    INPUT VALIDATION:
+    =================
+    All results must contain required keys:
+    - 'data': DataFrame with raw measurements
+    - 'step_data': DataFrame with aggregated steps
+    - 'dense_curve': DataFrame with interpolated curve (can be empty)
+    - 'buffer_region': DataFrame with buffer regression data (can be empty)
+
+    Raises KeyError if required keys are missing.
     """
+    if not results:
+        raise ValueError("results list is empty; nothing to plot")
+
+    # Validate first result for required structure
+    required_keys = {"data", "step_data", "dense_curve", "buffer_region"}
+    if not required_keys.issubset(results[0].keys()):
+        missing = required_keys - set(results[0].keys())
+        raise KeyError(
+            f"Result dictionaries missing required keys: {missing}. "
+            f"Expected keys: {required_keys}"
+        )
     setup_plot_style()
     os.makedirs(output_dir, exist_ok=True)
 
@@ -130,9 +151,9 @@ def plot_titration_curves(
             x_smooth = pd.to_numeric(
                 dense_df["Volume (cm³)"], errors="coerce"
             ).to_numpy(dtype=float)
-            y_smooth = pd.to_numeric(
-                dense_df["pH_interp"], errors="coerce"
-            ).to_numpy(dtype=float)
+            y_smooth = pd.to_numeric(dense_df["pH_interp"], errors="coerce").to_numpy(
+                dtype=float
+            )
             mask = np.isfinite(x_smooth) & np.isfinite(y_smooth)
             x_smooth = x_smooth[mask]
             y_smooth = y_smooth[mask]
@@ -156,9 +177,9 @@ def plot_titration_curves(
             x_smooth = pd.to_numeric(
                 dense_df["Volume (cm³)"], errors="coerce"
             ).to_numpy(dtype=float)
-            y_smooth = pd.to_numeric(
-                dense_df["pH_interp"], errors="coerce"
-            ).to_numpy(dtype=float)
+            y_smooth = pd.to_numeric(dense_df["pH_interp"], errors="coerce").to_numpy(
+                dtype=float
+            )
             # Apply finite mask to avoid all-NaN case in nanargmin
             mask = np.isfinite(x_smooth) & np.isfinite(y_smooth)
             x_smooth = x_smooth[mask]
@@ -168,8 +189,16 @@ def plot_titration_curves(
                 ph_at_veq = y_smooth[idx_veq]
                 idx_half = int(np.nanargmin(np.abs(x_smooth - veq / 2)))
                 ph_at_half = y_smooth[idx_half]
-                veq_label = f"Equivalence point: pH {ph_at_veq:.2f}" if np.isfinite(ph_at_veq) else "Equivalence point"
-                half_veq_label = f"Half-equivalence point: pH {ph_at_half:.2f}" if np.isfinite(ph_at_half) else "Half-equivalence point"
+                veq_label = (
+                    f"Equivalence point: pH {ph_at_veq:.2f}"
+                    if np.isfinite(ph_at_veq)
+                    else "Equivalence point"
+                )
+                half_veq_label = (
+                    f"Half-equivalence point: pH {ph_at_half:.2f}"
+                    if np.isfinite(ph_at_half)
+                    else "Half-equivalence point"
+                )
                 ax1.axvline(
                     veq,
                     color="black",
@@ -224,8 +253,16 @@ def plot_titration_curves(
                     label="First derivative",
                 )
                 if np.isfinite(veq):
-                    veq_label = f"Equivalence point: pH {ph_at_veq:.2f}" if np.isfinite(ph_at_veq) else "Equivalence point"
-                    half_veq_label = f"Half-equivalence point: pH {ph_at_half:.2f}" if np.isfinite(ph_at_half) else "Half-equivalence point"
+                    veq_label = (
+                        f"Equivalence point: pH {ph_at_veq:.2f}"
+                        if np.isfinite(ph_at_veq)
+                        else "Equivalence point"
+                    )
+                    half_veq_label = (
+                        f"Half-equivalence point: pH {ph_at_half:.2f}"
+                        if np.isfinite(ph_at_half)
+                        else "Half-equivalence point"
+                    )
                     ax2.axvline(
                         veq,
                         color="black",
@@ -299,6 +336,8 @@ def plot_titration_curves(
                         0.98,
                         0.02,
                         rf"$\mathrm{{pH}} = {slope:.3f}\,x + {intercept:.3f}$"
+                        + "\n"
+                        + rf"$pK_{{a,\mathrm{{app}}}} = {intercept:.3f}$"
                         + label_r2,
                         transform=ax3.transAxes,
                         ha="right",
@@ -306,7 +345,7 @@ def plot_titration_curves(
                         fontsize=14,
                     )
 
-        ax3.set_title("Henderson-Hasselbalch", fontweight="bold")
+        ax3.set_title("Henderson-Hasselbalch (apparent pK$_a$)", fontweight="bold")
         ax3.set_xlabel(r"$\log_{10}\!\left(\frac{V}{V_{eq}-V}\right)$")
         ax3.set_ylabel("pH")
         ax3.yaxis.set_major_locator(MaxNLocator(nbins=7))

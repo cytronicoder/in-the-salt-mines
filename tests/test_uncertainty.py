@@ -49,9 +49,14 @@ def test_power_negative_with_integer_exponent():
 
 def test_power_negative_with_non_integer_exponent():
     """Test that power() raises ValueError for negative values with non-integer exponents."""
-    with pytest.raises(ValueError, match="Cannot compute power for negative value.*non-integer exponent.*complex number"):
+    with pytest.raises(
+        ValueError,
+        match="Cannot compute power for negative value.*non-integer exponent.*complex number",
+    ):
         power(-2.0, 0.01, 0.5)
 
-    with pytest.raises(ValueError, match="Cannot compute power for negative value.*non-integer exponent.*complex number"):
+    with pytest.raises(
+        ValueError,
+        match="Cannot compute power for negative value.*non-integer exponent.*complex number",
+    ):
         power(-2.0, 0.01, 1.5)
-

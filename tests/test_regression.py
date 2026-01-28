@@ -9,7 +9,7 @@ def test_hh_regression_slope_close_to_one():
     veq = 10.0
     pka_app = 4.75
     log_ratios = np.array([-0.5, -0.25, 0.0, 0.25, 0.5])
-    ratios = 10 ** log_ratios
+    ratios = 10**log_ratios
     volumes = ratios * veq / (1.0 + ratios)
     pH = pka_app + log_ratios
 
@@ -22,7 +22,7 @@ def test_invalid_buffer_region_raises():
     veq = 10.0
     pka_app = 4.75
     log_ratios = np.array([-0.5, 0.0, 0.5])
-    ratios = 10 ** log_ratios
+    ratios = 10**log_ratios
     volumes = ratios * veq / (1.0 + ratios)
     pH = np.full_like(volumes, 8.0)
 

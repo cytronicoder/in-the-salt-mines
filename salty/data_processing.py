@@ -1,10 +1,35 @@
 """
-Processes titration data from Logger Pro CSV exports.
+Data processing utilities for Logger Pro titration CSV exports.
 
-Extracts runs into per-run DataFrames, aggregates volume steps for robust pH estimates,
-and computes derivatives for equivalence detection using PCHIP or finite-difference methods.
+This module handles the conversion of raw titration data (continuous pH readings
+during NaOH addition) into the aggregated step-wise format required for
+equivalence point detection and pKa_app analysis.
 
-Supports optional volume binning and handles duplicate readings appropriately.
+Data Flow:
+    1. load_titration_data: Read CSV file into DataFrame
+    2. extract_runs: Identify and separate individual experimental runs
+    3. aggregate_volume_steps: Convert continuous readings to step-wise data
+       with representative pH values per volume increment
+
+Step Aggregation:
+    At each volume step, the pH stabilizes over time as the system equilibrates.
+    The aggregate_volume_steps function takes the median of the final readings
+    ("tail") at each volume to obtain a representative equilibrium pH.
+
+    This addresses:
+    - Transient mixing effects immediately after base addition
+    - Electrode response time
+    - Minor drift during stabilization
+
+Interpolation Support:
+    The processed step data feeds into PCHIP interpolation for smooth curve
+    generation and derivative computation. Strictly increasing, unique x-values
+    are enforced.
+
+Logger Pro Format:
+    Expected columns follow Logger Pro naming conventions:
+    - 'Run 1: Volume (cm³)', 'Run 1: pH', etc.
+    - Or aliased columns that will be renamed during extraction
 """
 
 from __future__ import annotations
@@ -24,6 +49,7 @@ DEFAULT_VOLUME_BIN: Optional[float] = None
 
 
 def _round_to_resolution(x: pd.Series, res: Optional[float]) -> pd.Series:
+    """Round values to a specified resolution (bin width)."""
     if res is None or res <= 0:
         return x
     return (np.round(x / res) * res).astype(float)
@@ -31,8 +57,16 @@ def _round_to_resolution(x: pd.Series, res: Optional[float]) -> pd.Series:
 
 def _infer_recorded_resolution(x: pd.Series) -> Optional[float]:
     """
-    Infer an approximate recorded resolution from the mode/median of positive step sizes.
-    Returns None if inference is unstable.
+    Infer the recording resolution from observed step sizes.
+
+    Examines the distribution of volume increments to identify the
+    burette resolution used during data collection.
+
+    Args:
+        x: Series of volume values.
+
+    Returns:
+        Inferred resolution (e.g., 0.05 cm³) or None if inference fails.
     """
     xv = pd.to_numeric(x, errors="coerce")
     xv = xv[np.isfinite(xv)]
@@ -57,6 +91,21 @@ def _ensure_strictly_increasing_unique(
     x_col: str,
     y_cols: Optional[list[str]] = None,
 ) -> pd.DataFrame:
+    """
+    Ensure x-values are strictly increasing and unique.
+
+    PCHIP interpolation requires strictly increasing x-values. This function
+    sorts the data, removes NaN x-values, and merges duplicate x-values by
+    averaging their y-values.
+
+    Args:
+        df: Input DataFrame.
+        x_col: Name of the x-column (independent variable).
+        y_cols: Names of y-columns to aggregate when merging duplicates.
+
+    Returns:
+        DataFrame with sorted, unique x-values.
+    """
     if y_cols is None:
         y_cols = []
 
@@ -92,6 +141,23 @@ def extract_runs(
     df: pd.DataFrame,
     allow_time_fallback: bool = False,
 ) -> Dict[str, Dict]:
+    """
+    Extract individual experimental runs from a multi-run Logger Pro export.
+
+    Logger Pro exports multiple runs in a single CSV with columns named
+    'Run 1: Volume (cm³)', 'Run 1: pH', 'Run 2: Volume (cm³)', etc.
+    This function separates them into individual DataFrames.
+
+    Args:
+        df: Raw DataFrame from load_titration_data().
+        allow_time_fallback: If True, use time as x-axis when volume is
+            unavailable (for drift analysis).
+
+    Returns:
+        Dictionary mapping run names to dictionaries containing:
+            - 'df': Tidy DataFrame with 'Volume (cm³)', 'pH', 'Time (min)'
+            - 'x_col': Name of the x-column to use for analysis
+    """
     runs: Dict[str, Dict] = {}
 
     prefixes = {
@@ -163,6 +229,47 @@ def aggregate_volume_steps(
     tail_max: int = 10,
     tail_min: int = 3,
 ) -> pd.DataFrame:
+    """
+    Aggregate continuous pH readings into step-wise equilibrium values.
+
+    At each volume increment during a titration, multiple pH readings are
+    recorded as the system equilibrates. This function groups readings by
+    volume and extracts representative equilibrium pH values.
+
+    Equilibration Strategy:
+        For each volume step, the function:
+        1. Identifies all readings at that volume
+        2. Takes the "tail" (final readings) to represent equilibrated pH
+        3. Computes median of tail as the representative pH_step value
+
+        The tail approach avoids transient mixing effects and electrode
+        response delays that affect early readings at each step.
+
+    Args:
+        df: Raw titration data with continuous pH readings.
+        volume_col: Name of volume column.
+        ph_col: Name of pH column.
+        volume_bin: If specified, rounds volumes to this resolution before
+            grouping. Useful for noisy volume sensors.
+        auto_bin_if_needed: If True, automatically infer binning resolution.
+        time_col: Name of time column (used for drift analysis).
+        tail_max: Maximum number of readings to include in tail.
+        tail_min: Minimum number of readings to include in tail.
+
+    Returns:
+        DataFrame with columns:
+            - 'Volume (cm³)': Unique volume values
+            - 'pH_step': Representative equilibrium pH at each volume
+            - 'pH_step_sd': Standard deviation of tail pH values
+            - 'pH_drift_step': pH change during equilibration
+            - 'pH_slope_step': Rate of pH change vs. time (if available)
+            - 'n_step': Total number of readings at this volume
+            - 'n_tail': Number of readings in the tail
+
+    Note:
+        Output is sorted by volume and guaranteed to have strictly
+        increasing, unique volume values (required for PCHIP interpolation).
+    """
     if volume_col not in df.columns or ph_col not in df.columns:
         return pd.DataFrame(
             columns=[

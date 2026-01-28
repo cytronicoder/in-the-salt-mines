@@ -1,14 +1,59 @@
 """
-A Python package for analyzing weak acid-strong base titration data.
+Salty: A Python package for acid-base titration analysis under ionic strength variation.
 
-Determines equivalence points and apparent pKa (pKa_app) values under varying
-ionic strength conditions.
+This package implements a rigorous two-stage protocol for extracting apparent
+dissociation constants (pKa_app) from weak acid-strong base titration data,
+with explicit treatment of ionic strength effects on acid-base equilibria.
 
-Modules:
-    - data_processing: Loads and processes titration data from CSV files.
-    - analysis: Analyzes titration runs, calculates pKa_app, and estimates uncertainties.
-    - plotting: Creates publication-quality plots and saves results.
-    - uncertainty: Handles uncertainty propagation using IB DP rules.
+Scientific Framework:
+    The package addresses the question: How does increasing ionic strength
+    (via NaCl addition) affect the measured pKa of a weak acid?
+
+    Key insight: In solutions of non-zero ionic strength, the thermodynamic
+    acid dissociation constant (Ka) relates to concentrations through activity
+    coefficients (γ). The apparent constant pKa_app measured from concentration
+    data therefore reflects both the intrinsic dissociation equilibrium and
+    the activity coefficient ratio (γ_HA / (γ_H+ · γ_A-)).
+
+Methodological Approach:
+    Stage 1 — Coarse pKa_app estimate:
+        Uses the half-equivalence point (V = 0.5·V_eq) where pH ≈ pKa_app
+        by Henderson-Hasselbalch approximation.
+
+    Stage 2 — Refined regression:
+        Performs Henderson-Hasselbalch regression (pH vs. log₁₀(V/(V_eq−V)))
+        only within the chemically valid buffer region (|pH − pKa_app| ≤ 1).
+
+Error Handling Philosophy:
+    The package fails loudly on invalid science:
+    - Insufficient buffer points raise ValueError (minimum 3 required)
+    - Invalid V_eq or pKa_app inputs raise explicit exceptions
+    - Henderson-Hasselbalch slope deviations (|m − 1| > 0.1) trigger warnings
+
+Uncertainty Treatment:
+    All uncertainties are systematic (worst-case bounds), not statistical:
+    - Equipment uncertainties propagated through calculations
+    - Trial-to-trial variation reported as half-range (max − min)/2
+    - Consistent with IB Chemistry Data Processing methodology
+
+Subpackages:
+    chemistry:
+        Henderson-Hasselbalch regression (hh_model) and buffer region
+        selection (buffer_region). No plotting dependencies.
+
+    stats:
+        Linear regression (regression) and uncertainty propagation
+        (uncertainty). Pure numerical utilities with no chemistry logic.
+
+    plotting:
+        Publication-quality figure generation for titration curves
+        (titration_plots) and statistical summaries (summary_plots).
+        Accepts precomputed results; no chemistry calculations.
+
+See Also:
+    - salty.analysis: Main orchestration functions
+    - salty.data_processing: CSV parsing and run extraction
+    - salty.chemistry: Henderson-Hasselbalch model implementation
 """
 
 __version__ = "1.0.0"

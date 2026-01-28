@@ -1,6 +1,28 @@
 #!/usr/bin/env python3
 """
-Main script for running titration analysis.
+Command-line interface for weak acid-strong base titration analysis.
+
+This script orchestrates the complete analysis pipeline:
+1. Load titration data from Logger Pro CSV exports
+2. Extract individual experimental runs
+3. Perform two-stage pKa_app extraction for each run
+4. Compute mean pKa_app per NaCl concentration with uncertainties
+5. Generate publication-quality figures
+6. Export results to CSV
+
+Usage:
+    python main.py
+
+Output:
+    output/
+    ├── individual_results.csv    # Per-run pKa_app values
+    ├── statistical_summary.csv   # Mean pKa_app per concentration
+    ├── with_raw/                 # Figures showing raw pH points
+    │   ├── titration_*.png
+    │   └── statistical_summary.png
+    └── without_raw/              # Figures without raw points
+        ├── titration_*.png
+        └── statistical_summary.png
 """
 
 import logging
@@ -31,7 +53,12 @@ from salty.plotting import plot_statistical_summary, plot_titration_curves
 
 
 def main():
-    """Main execution function with comprehensive technical logging."""
+    """
+    Execute the complete titration analysis pipeline.
+
+    Returns:
+        0 on success, 1 if no valid results were obtained.
+    """
 
     start_time = time.time()
     logging.info("Initializing titration analysis pipeline")
@@ -104,9 +131,7 @@ def main():
     titration_plot_paths_with = plot_titration_curves(
         results, with_raw_dir, show_raw_pH=True
     )
-    plot_titration_curves(
-        results, without_raw_dir, show_raw_pH=False
-    )
+    plot_titration_curves(results, without_raw_dir, show_raw_pH=False)
     summary = build_summary_plot_data(stats_df, results_df)
     plot_statistical_summary(summary, with_raw_dir)
     plot_statistical_summary(summary, without_raw_dir)

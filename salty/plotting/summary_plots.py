@@ -20,13 +20,27 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
     """
     Black-and-white plot: apparent pKa vs NaCl concentration.
 
-    summary fields:
-      - x, y_mean, xerr, yerr
-      - individual: list of dicts with x, y, xerr, yerr
+    INPUT VALIDATION:
+    =================
+    summary must contain required fields:
+      - x: array of NaCl concentrations
+      - y_mean: array of mean apparent pKa values
+      - xerr: array of x uncertainties
+      - yerr: array of y uncertainties
+      - individual: list of dicts with x, y, xerr, yerr (can be empty)
       - fit: dict with m, b, r2
       - slope_uncertainty: dict with line endpoints and slope_unc (optional),
         representing a conservative systematic estimate (not a statistical σ).
+
+    Raises KeyError if required fields are missing.
     """
+    required_fields = {"x", "y_mean", "xerr", "yerr", "individual", "fit"}
+    missing = required_fields - set(summary.keys())
+    if missing:
+        raise KeyError(
+            f"summary dict missing required fields: {missing}. "
+            f"Expected fields: {required_fields}"
+        )
     setup_plot_style()
     os.makedirs(output_dir, exist_ok=True)
 
