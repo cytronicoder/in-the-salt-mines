@@ -13,6 +13,9 @@ from .stats.uncertainty import (
     uncertainty_for_equipment,
 )
 
+# Backwards-compatible alias for legacy code
+get_equipment_uncertainty = uncertainty_for_equipment
+
 __all__ = [
     "Quantity",
     "add_subtract",
@@ -20,6 +23,7 @@ __all__ = [
     "combine_uncertainties",
     "concentration_uncertainty",
     "format_value_with_uncertainty",
+    "get_equipment_uncertainty",
     "mul_div",
     "power",
     "round_value_to_uncertainty",
