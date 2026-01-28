@@ -2,6 +2,7 @@ import os
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from salty.analysis import build_summary_plot_data
 from salty.plotting import plot_statistical_summary, plot_titration_curves
@@ -77,8 +78,6 @@ def test_plot_statistical_summary(tmp_path):
 
 def test_build_summary_plot_data_missing_results_df_columns():
     """Test that build_summary_plot_data raises KeyError when results_df is missing required columns."""
-    import pytest
-    
     cols = ResultColumns()
     stats_df = pd.DataFrame(
         {
