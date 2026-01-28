@@ -104,7 +104,7 @@ def main():
     titration_plot_paths_with = plot_titration_curves(
         results, with_raw_dir, show_raw_pH=True
     )
-    titration_plot_paths_without = plot_titration_curves(
+    plot_titration_curves(
         results, without_raw_dir, show_raw_pH=False
     )
     summary = build_summary_plot_data(stats_df, results_df)
