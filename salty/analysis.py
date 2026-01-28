@@ -513,7 +513,7 @@ def analyze_titration(
             "x_col": x_col,
             "data": df,
             "step_data": step_df,
-            "dense_curve": pd.DataFrame(),
+            "dense_curve": dense_curve,
             "buffer_region": pd.DataFrame(),
         }
 
@@ -528,7 +528,7 @@ def analyze_titration(
             "x_col": x_col,
             "data": df,
             "step_data": step_df,
-            "dense_curve": pd.DataFrame(),
+            "dense_curve": dense_curve,
             "buffer_region": pd.DataFrame(),
         }
 
