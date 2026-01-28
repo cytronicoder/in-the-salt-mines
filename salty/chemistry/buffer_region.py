@@ -1,4 +1,9 @@
-"""Buffer-region selection utilities for acid-base titrations."""
+"""Select chemically valid buffer regions for Henderson–Hasselbalch analysis.
+
+This module defines the buffer-region selection criteria used in the two-stage
+pKa_app extraction workflow. The selection is purely chemical and does not
+perform regression, plotting, or file I/O.
+"""
 
 from __future__ import annotations
 
@@ -6,37 +11,23 @@ import numpy as np
 
 
 def select_buffer_region(pH: np.ndarray, pKa_app: float) -> np.ndarray:
-    r"""
-    Return boolean mask for chemically valid buffer region.
+    """Return a boolean mask for the chemically valid buffer region.
 
-    BUFFER REGION DEFINITION:
-    =========================
-    $\lvert \mathrm{pH} - \mathrm{p}K_{a,\mathrm{app}} \rvert \le 1$
+    The buffer region is defined as ``|pH − pKa_app| ≤ 1``. This operational
+    criterion corresponds to ``0.1 ≤ [A⁻]/[HA] ≤ 10`` and is where the
+    Henderson–Hasselbalch approximation is considered chemically defensible.
+    The pKa_app argument must be the Stage 1 (half-equivalence) estimate used
+    to define the Stage 2 regression window.
 
-    This corresponds to the range where $0.1 \le \dfrac{[\ce{A-}]}{[\ce{HA}]} \le 10$,
-    ensuring Henderson-Hasselbalch approximation validity.
-
-    USAGE IN TWO-STAGE pKa_app EXTRACTION:
-    =======================================
-    This function is called with pKa_app_initial (half-equivalence pH estimate)
-    to define the buffer region for Stage 2 regression.
-
-    Parameters:
-    -----------
-    pH : np.ndarray
-        Measured pH values
-    pKa_app : float
-        Initial pKa_app estimate (from half-equivalence point)
+    Args:
+        pH: Array of measured pH values.
+        pKa_app: Apparent pKa estimate from the half-equivalence point.
 
     Returns:
-    --------
-    np.ndarray
-        Boolean mask for buffer region points
+        Boolean NumPy array indicating which points lie in the buffer region.
 
     Raises:
-    -------
-    ValueError
-        If pKa_app is not finite
+        ValueError: If ``pKa_app`` is not finite.
     """
     pH_arr = np.asarray(pH, dtype=float)
     if not np.isfinite(pKa_app):

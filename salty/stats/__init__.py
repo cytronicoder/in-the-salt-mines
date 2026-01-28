@@ -1,24 +1,9 @@
-"""
-Statistical utilities for titration analysis.
+"""Numerical regression and systematic uncertainty utilities.
 
-This subpackage provides numerical routines for regression analysis and
-uncertainty propagation. All functions operate on arrays and primitive types;
-no chemistry-specific logic is included.
-
-Modules:
-    regression:
-        Linear regression with standard error and confidence interval
-        computation. Includes slope uncertainty estimation from endpoint
-        error boxes.
-
-    uncertainty:
-        IB DP worst-case uncertainty propagation for addition, subtraction,
-        multiplication, division, and powers. Equipment uncertainty lookup
-        and rounding utilities.
-
-Design Principle:
-    This subpackage has no dependencies on chemistry/ or plotting/ modules.
-    It provides pure numerical utilities that can be independently tested.
+This subpackage provides array-based regression diagnostics and worst-case
+uncertainty propagation. Statistical diagnostics (e.g., standard errors) are
+reported separately from systematic uncertainty bounds, which are intended as
+conservative experimental limits rather than probabilistic confidence levels.
 """
 
 from .regression import linear_regression, slope_uncertainty_from_endpoints

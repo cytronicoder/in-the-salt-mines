@@ -1,12 +1,8 @@
-"""
-Re-exports uncertainty propagation utilities from the stats subpackage.
+"""Expose systematic uncertainty utilities through a flat namespace.
 
-This module provides a flat namespace for uncertainty propagation functions
-following IB DP worst-case methodology. All functions are implemented in
-``salty.stats.uncertainty``.
-
-See Also:
-    salty.stats.uncertainty: Primary implementation of uncertainty utilities.
+This module re-exports the uncertainty propagation functions implemented in
+``salty.stats.uncertainty`` to simplify user-facing imports. The underlying
+methods follow worst-case, systematic uncertainty rules.
 """
 
 from .stats.uncertainty import (

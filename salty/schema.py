@@ -1,18 +1,9 @@
-"""
-Schema definitions for standardized DataFrame column names.
+"""Define standardized column names for result DataFrames.
 
-Provides a single source of truth for column naming conventions used across
-the package. This ensures consistency between data processing, analysis,
-and plotting modules.
-
-Usage:
-    cols = ResultColumns()
-    df[cols.pka_app]  # Access 'Apparent pKa' column
-
-Note:
-    The explicit 'Apparent pKa' terminology (rather than simply 'pKa')
-    emphasizes that these are concentration-based measurements affected
-    by ionic strength, not thermodynamic dissociation constants.
+This module provides a single, explicit schema for column naming used across
+the analysis, statistics, and plotting layers. The terminology intentionally
+emphasizes apparent pKa values influenced by ionic strength rather than
+thermodynamic dissociation constants.
 """
 
 from __future__ import annotations
@@ -22,13 +13,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ResultColumns:
-    """
-    Standard column names for result DataFrames.
+    """Container for standardized column labels.
 
     Attributes:
-        nacl: NaCl concentration column name ('NaCl Concentration (M)').
-        pka_app: Apparent pKa column name ('Apparent pKa').
-        pka_unc: pKa uncertainty column name ('Uncertainty in Apparent pKa').
+        nacl: Column name for NaCl concentration (mol/L).
+        pka_app: Column name for apparent pKa values.
+        pka_unc: Column name for systematic pKa_app uncertainty.
     """
 
     nacl: str = "NaCl Concentration (M)"

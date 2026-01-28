@@ -1,4 +1,9 @@
-"""Henderson-Hasselbalch regression utilities for apparent pKa extraction."""
+"""Henderson–Hasselbalch regression utilities for apparent pKa extraction.
+
+This module implements the Stage 2 regression step in the two-stage pKa_app
+workflow. It performs no I/O and relies exclusively on chemically validated
+inputs supplied by the analysis pipeline.
+"""
 
 from __future__ import annotations
 
@@ -15,39 +20,36 @@ from salty.stats.regression import linear_regression
 def fit_henderson_hasselbalch(
     step_df: pd.DataFrame, veq: float, pka_app_guess: float
 ) -> Dict[str, object]:
-    r"""
-    Perform Henderson–Hasselbalch regression in the chemically valid buffer region.
+    r"""Fit the Henderson–Hasselbalch model within the buffer region.
 
-    TWO-STAGE pKa_app EXTRACTION PROTOCOL:
-    ========================================
-    Stage 1 — Coarse estimate (performed externally in analysis.py):
-        - Estimate pKa_app_initial using half-equivalence pH (pH at V ≈ 0.5·V_eq)
-        - No regression allowed at this stage
+    This function implements Stage 2 (refined regression) of the two-stage
+    pKa_app extraction workflow. Stage 1 provides a coarse estimate from the
+    half-equivalence point; Stage 2 uses that estimate to define the buffer
+    region (``|pH − pKa_app| ≤ 1``) and performs the regression only within that
+    chemically valid window.
 
-    Stage 2 — Refined regression (this function):
-        - Uses pKa_app_initial (pka_app_guess) to define buffer region
-        - Performs Henderson–Hasselbalch regression only inside valid buffer region
-        - Buffer region: $\lvert \mathrm{pH} - \mathrm{p}K_{a,\mathrm{app}} \rvert \le 1$
+    Scientific interpretation:
+        The fitted intercept is an apparent pKa_app, not a thermodynamic pKa.
+        Because ionic strength alters activity coefficients, pKa_app is an
+        operational, concentration-based parameter. All conclusions must be
+        comparative across ionic strength conditions rather than absolute.
 
-    CRITICAL INTERPRETATION GUARDRAILS:
-    ====================================
-    The extracted pKa_app is an operational, concentration-based parameter.
-    Because NaCl alters ionic strength, activity coefficients (γ) vary between trials.
-    Therefore:
-    - pKa_app does NOT represent thermodynamic acid strength.
-    - Observed shifts reflect combined effects of dissociation equilibrium and
-      activity coefficient changes.
-    All conclusions must be comparative across ionic strengths, not absolute.
+    Model form:
+        ``pH = m * log10(V / (V_eq - V)) + b``, where ``b`` is pKa_app and ``m``
+        is expected to be close to 1.0 for an ideal buffer.
 
-    Failure to recognize this limitation invalidates chemical interpretation.
+    Args:
+        step_df: Step-aggregated data with ``Volume (cm³)`` and ``pH_step``.
+        veq: Equivalence volume in cm³.
+        pka_app_guess: Stage 1 pKa_app estimate from the half-equivalence point.
 
-    REGRESSION EQUATION:
-    ====================
-    $\displaystyle \mathrm{pH} = m\,\log_{10}\!\left(\dfrac{V}{V_{\mathrm{eq}} - V}\right) + b$
+    Returns:
+        A dictionary containing the fitted pKa_app, slope, R², confidence
+        interval information, and the buffer-region DataFrame used for the fit.
 
-    Where:
-    - $b \to \mathrm{p}K_{a,\mathrm{app}}$ (apparent pK_{a})
-    - $m$ → Henderson–Hasselbalch slope (expected $\approx 1.0$ for ideal buffer)
+    Raises:
+        ValueError: If required columns are missing, V_eq is invalid, or the
+            buffer region contains fewer than three valid points.
     """
     if (
         step_df.empty

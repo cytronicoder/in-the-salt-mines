@@ -1,3 +1,5 @@
+"""Pytest configuration for repository-relative imports."""
+
 import os
 import sys
 
