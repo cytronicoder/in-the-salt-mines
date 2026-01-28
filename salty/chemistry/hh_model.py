@@ -78,7 +78,7 @@ def fit_henderson_hasselbalch(
     return {
         "pka_app": intercept,
         "slope_reg": slope,
-        "r2": float(reg["r2"]),
+        "r2_reg": float(reg["r2"]),
         "n_points": int(len(log_ratio)),
         "se_intercept": float(reg["se_b"]),
         "ci95_intercept": float(reg["ci95_b"]),
