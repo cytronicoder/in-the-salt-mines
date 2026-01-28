@@ -602,6 +602,7 @@ def process_all_files(file_list):
                     run_df, f"{nacl_conc}M - {run_name}", x_col=x_col
                 )
                 if analysis.get("skip_reason"):
+                    print(f"  Skipping {run_name}: {analysis['skip_reason']}")
                     continue
 
                 analysis["nacl_conc"] = nacl_conc
