@@ -117,7 +117,6 @@ def main():
         summary = build_summary_plot_data(stats_df, results_df)
         plot_statistical_summary(summary, with_raw_dir)
         plot_statistical_summary(summary, without_raw_dir)
-        step_duration = time.time() - step_start
         logging.info(
             "Generated %d individual titration curve figures in each folder",
             len(titration_plot_paths_with),
@@ -126,6 +125,7 @@ def main():
         step_start = time.time()
         save_data_to_csv(results_df, stats_df, output_dir)
         step_duration = time.time() - step_start
+        logging.info("CSV output completed in %.2f seconds", step_duration)
 
         total_duration = time.time() - start_time
         logging.info("Total execution time: %.2f seconds", total_duration)

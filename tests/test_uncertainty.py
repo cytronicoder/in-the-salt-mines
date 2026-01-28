@@ -8,11 +8,7 @@ from salty.uncertainty import add_subtract, mul_div, power, uncertainty_for_equi
 
 
 def test_equipment_uncertainty_lookup():
-    """Verify equipment uncertainty lookup values.
-
-    Returns:
-        None.
-    """
+    """Verify equipment uncertainty lookup values."""
     u = uncertainty_for_equipment("25.0 cm3 pipette", 25.0)
     assert math.isclose(u, 0.06)
     u2 = uncertainty_for_equipment("250 cm3 beaker", 200.0)
@@ -20,11 +16,7 @@ def test_equipment_uncertainty_lookup():
 
 
 def test_add_subtract_simple():
-    """Verify worst-case propagation for addition/subtraction.
-
-    Returns:
-        None.
-    """
+    """Verify worst-case propagation for addition/subtraction."""
     vals = {
         "a": (10.0, 0.2, "cm"),
         "b": (2.0, 0.05, "cm"),
@@ -36,11 +28,7 @@ def test_add_subtract_simple():
 
 
 def test_mul_div_simple():
-    """Verify worst-case propagation for multiplication/division.
-
-    Returns:
-        None.
-    """
+    """Verify worst-case propagation for multiplication/division."""
     num = {"a": (2.0, 0.01, "cm"), "b": (3.0, 0.02, "cm")}
     den = {"c": (4.0, 0.01, "cm")}
     out = mul_div(num, den)
@@ -50,11 +38,7 @@ def test_mul_div_simple():
 
 
 def test_power_simple():
-    """Verify worst-case propagation for power-law relationships.
-
-    Returns:
-        None.
-    """
+    """Verify worst-case propagation for power-law relationships."""
     out = power(2.0, 0.01, 2.0, "cm")
     assert math.isclose(out["value"], 4.0)
     rel = abs(2.0) * (0.01 / 2.0)
@@ -62,11 +46,7 @@ def test_power_simple():
 
 
 def test_power_negative_with_integer_exponent():
-    """Verify power propagation for negative values with integer exponents.
-
-    Returns:
-        None.
-    """
+    """Verify power propagation for negative values with integer exponents."""
     out = power(-2.0, 0.01, 2.0, "cm")
     assert math.isclose(out["value"], 4.0)
     rel = abs(2.0) * (0.01 / abs(-2.0))
@@ -74,11 +54,7 @@ def test_power_negative_with_integer_exponent():
 
 
 def test_power_negative_with_non_integer_exponent():
-    """Raise errors for negative values with non-integer exponents.
-
-    Returns:
-        None.
-    """
+    """Raise errors for negative values with non-integer exponents."""
     with pytest.raises(
         ValueError,
         match="Cannot compute power for negative value.*non-integer exponent.*complex number",
