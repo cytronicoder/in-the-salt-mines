@@ -159,6 +159,10 @@ def plot_titration_curves(
             y_smooth = pd.to_numeric(
                 dense_df["pH_interp"], errors="coerce"
             ).to_numpy(dtype=float)
+            # Apply finite mask to avoid all-NaN case in nanargmin
+            mask = np.isfinite(x_smooth) & np.isfinite(y_smooth)
+            x_smooth = x_smooth[mask]
+            y_smooth = y_smooth[mask]
             if len(x_smooth) > 0:
                 idx_veq = int(np.nanargmin(np.abs(x_smooth - veq)))
                 ph_at_veq = y_smooth[idx_veq]
