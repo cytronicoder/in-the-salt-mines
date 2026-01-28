@@ -1,4 +1,4 @@
-This is a Python package for analyzing weak acid-strong base titration data, specifically exploring how ionic strength from NaCl affects the half-equivalence pH (pKa) in ethanoic acid-NaOH titrations.
+This is a Python package for analyzing weak acid-strong base titration data, specifically exploring how ionic strength from NaCl affects the half-equivalence pH (apparent pKa, pKa_app) in ethanoic acid-NaOH titrations.
 
 To install and use this package, you need:
 
@@ -36,7 +36,12 @@ This will:
 Here's a simple example of how to use the core functions programmatically:
 
 ```python
-from salty.analysis import process_all_files
+from salty.analysis import (
+    build_summary_plot_data,
+    calculate_statistics,
+    create_results_dataframe,
+    process_all_files,
+)
 from salty.plotting import plot_titration_curves, plot_statistical_summary
 
 # Process titration data
@@ -45,6 +50,10 @@ results = process_all_files(files)
 
 # Generate plots
 plot_titration_curves(results, "output", show_raw_pH=True)
+results_df = create_results_dataframe(results)
+stats_df = calculate_statistics(results_df)
+summary = build_summary_plot_data(stats_df, results_df)
+plot_statistical_summary(summary, "output")
 ```
 
 This package is licensed under the MIT License - see [LICENSE](LICENSE) file for details.

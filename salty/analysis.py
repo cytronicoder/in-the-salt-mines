@@ -1,7 +1,9 @@
 """
-Analyzes weak acid-strong base titration data to estimate equivalence volumes and apparent pKa values.
+Analyzes weak acid-strong base titration data to estimate equivalence volumes and
+apparent pKa (pKa_app) values.
 
-Detects V_eq from the inflection point (max d(pH)/dV) and pKa from buffer-region regression.
+Detects V_eq from the inflection point (max d(pH)/dV) and pKa_app from
+buffer-region regression.
 
 Uses PCHIP interpolation for smooth curves and half-equivalence pH estimation.
 
@@ -17,17 +19,20 @@ from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 
+from .chemistry.hh_model import fit_henderson_hasselbalch
 from .data_processing import aggregate_volume_steps, extract_runs, load_titration_data
-from .uncertainty import (
+from .schema import ResultColumns
+from .stats.regression import linear_regression, slope_uncertainty_from_endpoints
+from .stats.uncertainty import (
     burette_delivered_uncertainty,
     combine_uncertainties,
+    concentration_uncertainty,
     round_value_to_uncertainty,
 )
 
 HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
 if HAVE_SCIPY:
     from scipy.interpolate import PchipInterpolator
-    from scipy.stats import t as student_t
 
     try:
         from scipy.signal import savgol_filter
@@ -41,78 +46,6 @@ if HAVE_SCIPY:
 DEFAULT_BURETTE_UNC = 0.05
 DEFAULT_PH_METER_SYS = 0.00
 DEFAULT_PH_METER_RAND = 0.20
-
-
-def _linear_regression_with_uncertainty(
-    x: np.ndarray, y: np.ndarray
-) -> Dict[str, float]:
-    x = np.asarray(x, dtype=float)
-    y = np.asarray(y, dtype=float)
-    mask = np.isfinite(x) & np.isfinite(y)
-    x = x[mask]
-    y = y[mask]
-    n = int(len(x))
-    if n < 3:
-        return {
-            "m": np.nan,
-            "b": np.nan,
-            "r2": np.nan,
-            "se_m": np.nan,
-            "se_b": np.nan,
-            "ci95_b": np.nan,
-        }
-
-    m, b = np.polyfit(x, y, 1)
-    yhat = m * x + b
-    resid = y - yhat
-
-    sse = float(np.sum(resid**2))
-    sst = float(np.sum((y - y.mean()) ** 2))
-    r2 = 1.0 - sse / sst if sst > 0 else np.nan
-
-    dof = n - 2
-    if dof <= 0:
-        return {
-            "m": float(m),
-            "b": float(b),
-            "r2": float(r2),
-            "se_m": np.nan,
-            "se_b": np.nan,
-            "ci95_b": np.nan,
-        }
-
-    s2 = sse / dof
-    xbar = float(np.mean(x))
-    ssxx = float(np.sum((x - xbar) ** 2))
-    if ssxx <= 0:
-        return {
-            "m": float(m),
-            "b": float(b),
-            "r2": float(r2),
-            "se_m": np.nan,
-            "se_b": np.nan,
-            "ci95_b": np.nan,
-        }
-
-    se_m = float(np.sqrt(s2 / ssxx))
-    se_b = float(np.sqrt(s2 * (1.0 / n + (xbar**2) / ssxx)))
-
-    ci95_b = np.nan
-    if HAVE_SCIPY:
-        try:
-            tcrit = float(student_t.ppf(0.975, dof))
-            ci95_b = float(tcrit * se_b)
-        except Exception:
-            ci95_b = np.nan
-
-    return {
-        "m": float(m),
-        "b": float(b),
-        "r2": float(r2),
-        "se_m": se_m,
-        "se_b": se_b,
-        "ci95_b": ci95_b,
-    }
 
 
 def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -444,76 +377,6 @@ def detect_equivalence_point(
     }
 
 
-def fit_buffer_region(
-    step_df: pd.DataFrame, veq: float, window: Tuple[float, float] = (0.2, 0.8)
-) -> Dict:
-    out = {
-        "pka_reg": np.nan,
-        "slope_reg": np.nan,
-        "r2": np.nan,
-        "n_points": 0,
-        "se_intercept": np.nan,
-        "ci95_intercept": np.nan,
-        "buffer_df": pd.DataFrame(
-            columns=["Volume (cm³)", "log10_ratio", "pH_step", "pH_fit"]
-        ),
-        "window": window,
-    }
-
-    if not np.isfinite(veq) or veq <= 0 or step_df.empty:
-        return out
-
-    volumes = step_df["Volume (cm³)"].to_numpy(dtype=float)
-    ph_values = step_df["pH_step"].to_numpy(dtype=float)
-
-    lo, hi = window
-    mask = (
-        (volumes > lo * veq)
-        & (volumes < hi * veq)
-        & (volumes < 0.95 * veq)
-        & (volumes > 0)
-        & np.isfinite(ph_values)
-    )
-    v = volumes[mask]
-    y = ph_values[mask]
-    out["n_points"] = int(len(v))
-    if len(v) < 4:
-        return out
-
-    x = np.log10(v / (veq - v))
-    reg = _linear_regression_with_uncertainty(x, y)
-
-    m = reg["m"]
-    b = reg["b"]
-    r2 = reg["r2"]
-
-    if np.isfinite(m) and np.isfinite(b):
-        y_pred = m * x + b
-    else:
-        y_pred = np.full_like(y, np.nan)
-
-    out.update(
-        {
-            "pka_reg": float(b),
-            "slope_reg": float(m),
-            "r2": float(r2),
-            "se_intercept": float(reg["se_b"]),
-            "ci95_intercept": float(reg["ci95_b"]),
-            "buffer_df": pd.DataFrame(
-                {"Volume (cm³)": v, "log10_ratio": x, "pH_step": y, "pH_fit": y_pred}
-            ),
-        }
-    )
-    return out
-
-
-def select_best_buffer_fit(step_df: pd.DataFrame, veq: float) -> Dict:
-    windows = [(0.25, 0.75), (0.2, 0.8), (0.3, 0.7)]
-    fits = [fit_buffer_region(step_df, veq, window=w) for w in windows]
-    fits.sort(key=lambda f: (f.get("r2", -np.inf), f.get("n_points", 0)), reverse=True)
-    return fits[0] if fits else fit_buffer_region(step_df, veq, window=(0.2, 0.8))
-
-
 def _veq_uncertainty(
     step_df: pd.DataFrame,
     burette_unc: float = DEFAULT_BURETTE_UNC,
@@ -540,48 +403,7 @@ def _veq_uncertainty(
     return float(combine_uncertainties([res_term, burette_term], method=method))
 
 
-def _pka_unc_from_half_eq(
-    interpolator: Dict,
-    veq: float,
-    veq_unc: float,
-    ph_rand: float,
-    ph_sys: float,
-    method: str = "worst_case",
-) -> float:
-    if not (
-        interpolator
-        and "func" in interpolator
-        and np.isfinite(veq)
-        and np.isfinite(veq_unc)
-        and veq > 0
-    ):
-        terms = [t for t in [ph_rand, ph_sys] if np.isfinite(t) and t > 0]
-        return float(combine_uncertainties(terms, method=method)) if terms else np.nan
-
-    v0 = veq / 2.0
-    v_plus = (veq + veq_unc) / 2.0
-    v_minus = max((veq - veq_unc) / 2.0, 0.0)
-
-    p0 = float(interpolator["func"](v0))
-    pp = float(interpolator["func"](v_plus))
-    pm = float(interpolator["func"](v_minus))
-
-    sens = np.nan
-    if np.isfinite(pp) and np.isfinite(pm):
-        sens = 0.5 * abs(pp - pm)
-    elif np.isfinite(pp) and np.isfinite(p0):
-        sens = abs(pp - p0)
-    elif np.isfinite(pm) and np.isfinite(p0):
-        sens = abs(pm - p0)
-
-    terms = []
-    for t in (sens, ph_rand, ph_sys):
-        if np.isfinite(t) and t > 0:
-            terms.append(float(t))
-    return float(combine_uncertainties(terms, method=method)) if terms else np.nan
-
-
-def _pka_unc_from_buffer_fit(
+def _pka_app_unc_from_buffer_fit(
     step_df: pd.DataFrame,
     veq: float,
     veq_unc: float,
@@ -592,7 +414,7 @@ def _pka_unc_from_buffer_fit(
     if step_df.empty or buffer_fit is None:
         return np.nan
 
-    pka0 = buffer_fit.get("pka_reg", np.nan)
+    pka0 = buffer_fit.get("pka_app", np.nan)
     if not (
         np.isfinite(pka0) and np.isfinite(veq) and np.isfinite(veq_unc) and veq > 0
     ):
@@ -604,11 +426,20 @@ def _pka_unc_from_buffer_fit(
         float(ci95) if np.isfinite(ci95) else (float(se) if np.isfinite(se) else np.nan)
     )
 
-    window = buffer_fit.get("window", (0.2, 0.8))
-    fit_plus = fit_buffer_region(step_df, veq + veq_unc, window=window)
-    fit_minus = fit_buffer_region(step_df, max(veq - veq_unc, 0.1), window=window)
-    pka_plus = fit_plus.get("pka_reg", np.nan)
-    pka_minus = fit_minus.get("pka_reg", np.nan)
+    try:
+        fit_plus = fit_henderson_hasselbalch(
+            step_df, veq + veq_unc, pka_app_guess=pka0
+        )
+        pka_plus = fit_plus.get("pka_app", np.nan)
+    except ValueError:
+        pka_plus = np.nan
+    try:
+        fit_minus = fit_henderson_hasselbalch(
+            step_df, max(veq - veq_unc, 0.1), pka_app_guess=pka0
+        )
+        pka_minus = fit_minus.get("pka_app", np.nan)
+    except ValueError:
+        pka_minus = np.nan
 
     sens = np.nan
     if np.isfinite(pka_plus) and np.isfinite(pka_minus):
@@ -637,7 +468,6 @@ def analyze_titration(
     smooth_for_derivative: bool = True,
     savgol_window: int = 7,
     polyorder: int = 2,
-    buffer_window: Tuple[float, float] = (0.2, 0.8),
 ) -> Dict:
     step_df = aggregate_volume_steps(df)
     if step_df.empty:
@@ -676,41 +506,47 @@ def analyze_titration(
         else np.nan
     )
 
-    buffer_fit = (
-        fit_buffer_region(step_df, veq_used, window=buffer_window)
-        if np.isfinite(veq_used)
-        else None
-    )
-    buffer_df = (
-        buffer_fit.get("buffer_df", pd.DataFrame()) if buffer_fit else pd.DataFrame()
-    )
+    if not np.isfinite(half_eq_pH):
+        return {
+            "run_name": run_name,
+            "skip_reason": "Half-equivalence pH required for buffer-region selection",
+            "x_col": x_col,
+            "data": df,
+            "step_data": step_df,
+            "dense_curve": dense_curve,
+            "buffer_region": pd.DataFrame(),
+        }
 
-    pka_reg = buffer_fit.get("pka_reg", np.nan) if buffer_fit else np.nan
-    if np.isfinite(pka_reg):
-        pka_used = float(pka_reg)
-        pka_method = "buffer_regression"
-        pka_unc = _pka_unc_from_buffer_fit(
-            step_df,
-            veq_used,
-            veq_unc,
-            buffer_fit,
-            ph_sys=ph_sys,
-            method=uncertainty_method,
+    try:
+        buffer_fit = fit_henderson_hasselbalch(
+            step_df, veq_used, pka_app_guess=half_eq_pH
         )
-    else:
-        pka_used = float(half_eq_pH) if np.isfinite(half_eq_pH) else np.nan
-        pka_method = "half_equivalence" if np.isfinite(half_eq_pH) else "unknown"
-        pka_unc = _pka_unc_from_half_eq(
-            interpolator,
-            veq_used,
-            veq_unc,
-            ph_rand=ph_rand,
-            ph_sys=ph_sys,
-            method=uncertainty_method,
-        )
+    except ValueError as e:
+        return {
+            "run_name": run_name,
+            "skip_reason": f"Buffer region regression failed: {e}",
+            "x_col": x_col,
+            "data": df,
+            "step_data": step_df,
+            "dense_curve": dense_curve,
+            "buffer_region": pd.DataFrame(),
+        }
+
+    buffer_df = buffer_fit.get("buffer_df", pd.DataFrame())
+
+    pka_app = float(buffer_fit.get("pka_app", np.nan))
+    pka_method = "buffer_regression"
+    pka_unc = _pka_app_unc_from_buffer_fit(
+        step_df,
+        veq_used,
+        veq_unc,
+        buffer_fit,
+        ph_sys=ph_sys,
+        method=uncertainty_method,
+    )
 
     veq_round, veq_unc_round = round_value_to_uncertainty(veq_used, veq_unc)
-    pka_round, pka_unc_round = round_value_to_uncertainty(pka_used, pka_unc)
+    pka_round, pka_unc_round = round_value_to_uncertainty(pka_app, pka_unc)
 
     return {
         "run_name": run_name,
@@ -725,15 +561,13 @@ def analyze_titration(
         "veq_uncertainty_rounded": veq_unc_round,
         "half_eq_x": half_eq_x,
         "half_eq_pH": half_eq_pH,
-        "pka_used": pka_used,
+        "pka_app": pka_app,
         "pka_method": pka_method,
-        "pka_uncertainty": pka_unc,
-        "pka_used_rounded": pka_round,
-        "pka_uncertainty_rounded": pka_unc_round,
-        "pka_reg": pka_reg,
-        "slope_reg": buffer_fit.get("slope_reg", np.nan) if buffer_fit else np.nan,
-        "r2_reg": buffer_fit.get("r2", np.nan) if buffer_fit else np.nan,
-        "buffer_window": buffer_fit.get("window", None) if buffer_fit else None,
+        "pka_app_uncertainty": pka_unc,
+        "pka_app_rounded": pka_round,
+        "pka_app_uncertainty_rounded": pka_unc_round,
+        "slope_reg": buffer_fit.get("slope_reg", np.nan),
+        "r2_reg": buffer_fit.get("r2_reg", np.nan),
         "x_col": x_col,
         "data": df,
         "step_data": step_df,
@@ -742,7 +576,7 @@ def analyze_titration(
         "diagnostics": {
             "interpolator_method": interpolator.get("method"),
             "step_points": int(len(step_df)),
-            "buffer_points": int(buffer_fit.get("n_points", 0)) if buffer_fit else 0,
+            "buffer_points": int(buffer_fit.get("n_points", 0)),
             "equivalence_qc": eq_info.get("qc_diagnostics", {}),
         },
     }
@@ -768,6 +602,7 @@ def process_all_files(file_list):
                     run_df, f"{nacl_conc}M - {run_name}", x_col=x_col
                 )
                 if analysis.get("skip_reason"):
+                    print(f"  Skipping {run_name}: {analysis['skip_reason']}")
                     continue
 
                 analysis["nacl_conc"] = nacl_conc
@@ -782,26 +617,27 @@ def process_all_files(file_list):
 
 def create_results_dataframe(results):
     rows = []
+    cols = ResultColumns()
     for res in results:
         rows.append(
             {
                 "Run": res.get("run_name"),
-                "NaCl Concentration (M)": res.get("nacl_conc", np.nan),
-                "pKa (used)": res.get("pka_used", np.nan),
-                "pKa method": res.get("pka_method", ""),
-                "pKa uncertainty (ΔpKa)": res.get("pka_uncertainty", np.nan),
-                "pKa (used, rounded)": res.get("pka_used_rounded", np.nan),
-                "pKa uncertainty (rounded)": res.get("pka_uncertainty_rounded", np.nan),
+                cols.nacl: res.get("nacl_conc", np.nan),
+                cols.pka_app: res.get("pka_app", np.nan),
+                "pKa_app method": res.get("pka_method", ""),
+                cols.pka_unc: res.get("pka_app_uncertainty", np.nan),
+                "Apparent pKa (rounded)": res.get("pka_app_rounded", np.nan),
+                "Apparent pKa uncertainty (rounded)": res.get(
+                    "pka_app_uncertainty_rounded", np.nan
+                ),
                 "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
                 "Veq (used)": res.get("veq_used", np.nan),
                 "Veq uncertainty (ΔVeq)": res.get("veq_uncertainty", np.nan),
                 "Veq (used, rounded)": res.get("veq_used_rounded", np.nan),
                 "Veq uncertainty (rounded)": res.get("veq_uncertainty_rounded", np.nan),
                 "Veq method": res.get("veq_method", ""),
-                "pKa (buffer regression)": res.get("pka_reg", np.nan),
                 "Slope (buffer fit)": res.get("slope_reg", np.nan),
                 "R2 (buffer fit)": res.get("r2_reg", np.nan),
-                "Buffer window": res.get("buffer_window", None),
                 "Source File": res.get("source_file", ""),
             }
         )
@@ -809,26 +645,40 @@ def create_results_dataframe(results):
 
 
 def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compute mean apparent pKa with IB-style uncertainty.
+
+    Uncertainty estimated as half-range to represent systematic variation
+    between trials, consistent with IB Chemistry methodology.
+    """
     if results_df.empty:
         return pd.DataFrame(
-            columns=["NaCl Concentration (M)", "Mean pKa", "Uncertainty", "n"]
+            columns=[
+                ResultColumns().nacl,
+                "Mean Apparent pKa",
+                "Uncertainty",
+                "n",
+            ]
         )
 
     rows = []
-    grouped = results_df.groupby("NaCl Concentration (M)")
+    cols = ResultColumns()
+    grouped = results_df.groupby(cols.nacl)
 
     for conc, group in grouped:
-        vals = pd.to_numeric(group["pKa (used)"], errors="coerce").to_numpy(dtype=float)
+        vals = pd.to_numeric(group[cols.pka_app], errors="coerce").to_numpy(
+            dtype=float
+        )
         vals = vals[np.isfinite(vals)]
         n = int(len(vals))
-        mean_pka = float(np.mean(vals)) if n else np.nan
+        mean_pka_app = float(np.mean(vals)) if n else np.nan
 
         if n >= 2:
             unc = 0.5 * float(np.max(vals) - np.min(vals))
         elif n == 1:
-            u = pd.to_numeric(
-                group["pKa uncertainty (ΔpKa)"], errors="coerce"
-            ).to_numpy(dtype=float)
+            u = pd.to_numeric(group[cols.pka_unc], errors="coerce").to_numpy(
+                dtype=float
+            )
             u = u[np.isfinite(u)]
             unc = float(u[0]) if len(u) else np.nan
         else:
@@ -836,8 +686,8 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
 
         rows.append(
             {
-                "NaCl Concentration (M)": conc,
-                "Mean pKa": mean_pka,
+                cols.nacl: conc,
+                "Mean Apparent pKa": mean_pka_app,
                 "Uncertainty": unc,
                 "n": n,
             }
@@ -845,9 +695,107 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
 
     return (
         pd.DataFrame.from_records(rows)
-        .sort_values("NaCl Concentration (M)")
+        .sort_values(ResultColumns().nacl)
         .reset_index(drop=True)
     )
+
+
+def build_summary_plot_data(
+    stats_df: pd.DataFrame, results_df: pd.DataFrame
+) -> Dict[str, object]:
+    """
+    Build plotting inputs without computing statistics inside plotting functions.
+    """
+    cols = ResultColumns()
+    required_cols = [cols.nacl, "Mean Apparent pKa", "Uncertainty"]
+    missing = [c for c in required_cols if c not in stats_df.columns]
+    if missing:
+        raise KeyError(
+            f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
+        )
+
+    # Validate results_df columns
+    required_results_cols = [cols.nacl, cols.pka_app]
+    missing_results = [c for c in required_results_cols if c not in results_df.columns]
+    if missing_results:
+        raise KeyError(
+            f"results_df is missing required columns. Expected: {required_results_cols}, missing: {missing_results}."
+        )
+
+    x = pd.to_numeric(stats_df[cols.nacl], errors="coerce").to_numpy(dtype=float)
+    y_mean = pd.to_numeric(stats_df["Mean Apparent pKa"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    yerr = pd.to_numeric(stats_df["Uncertainty"], errors="coerce").to_numpy(dtype=float)
+    yerr = np.where(np.isfinite(yerr), yerr, 0.0)
+    xerr = np.array(
+        [concentration_uncertainty(c) if np.isfinite(c) else 0.0 for c in x],
+        dtype=float,
+    )
+
+    individual = []
+    conc_values = np.unique(x[np.isfinite(x)])
+    for conc in conc_values:
+        subset = results_df[results_df[cols.nacl] == conc]
+        if subset.empty:
+            continue
+
+        vals = pd.to_numeric(subset[cols.pka_app], errors="coerce").to_numpy(
+            dtype=float
+        )
+        mask = np.isfinite(vals)
+        vals = vals[mask]
+        if len(vals) == 0:
+            continue
+
+        n = len(vals)
+        jitter = 0.012 if n > 1 else 0.0
+        xs = conc + np.linspace(-jitter, jitter, n)
+
+        this_xerr = concentration_uncertainty(float(conc))
+
+        yerrs_ind = None
+        if cols.pka_unc in subset.columns:
+            tmp = pd.to_numeric(subset[cols.pka_unc], errors="coerce").to_numpy(
+                dtype=float
+            )[mask]
+            if np.any(np.isfinite(tmp)) and np.any(tmp > 0):
+                yerrs_ind = tmp
+
+        individual.append(
+            {"x": xs, "y": vals, "xerr": this_xerr, "yerr": yerrs_ind}
+        )
+
+    fit = {"m": np.nan, "b": np.nan, "r2": np.nan}
+    finite = np.isfinite(x) & np.isfinite(y_mean)
+    if np.sum(finite) >= 2:
+        try:
+            reg = linear_regression(x[finite], y_mean[finite], min_points=2)
+            fit = {"m": reg["m"], "b": reg["b"], "r2": reg["r2"]}
+        except ValueError:
+            fit = {"m": np.nan, "b": np.nan, "r2": np.nan}
+
+    slope_uncertainty = None
+    if np.sum(finite) >= 2:
+        try:
+            slope_uncertainty = slope_uncertainty_from_endpoints(
+                x[finite],
+                y_mean[finite],
+                xerr[finite],
+                yerr[finite],
+            )
+        except ValueError:
+            slope_uncertainty = None
+
+    return {
+        "x": x,
+        "y_mean": y_mean,
+        "xerr": xerr,
+        "yerr": yerr,
+        "individual": individual,
+        "fit": fit,
+        "slope_uncertainty": slope_uncertainty,
+    }
 
 
 def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
@@ -856,41 +804,44 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
         print("  (no data)")
         return
 
+    cols = ResultColumns()
     for _, row in stats_df.iterrows():
-        conc = row["NaCl Concentration (M)"]
-        mean = row["Mean pKa"]
+        conc = row[cols.nacl]
+        mean = row["Mean Apparent pKa"]
         unc = row.get("Uncertainty")
         n = int(row["n"])
 
         if pd.notna(unc):
-            print(f" - {conc} M: Mean pKa = {mean:.3f} ± {unc:.3f} (n={n})")
+            print(
+                f" - {conc} M: Mean apparent pKa = {mean:.3f} ± {unc:.3f} (n={n})"
+            )
         else:
             print(
-                f" - {conc} M: Mean pKa = {mean:.3f} (uncertainty not available) (n={n})"
+                f" - {conc} M: Mean apparent pKa = {mean:.3f} (uncertainty not available) (n={n})"
             )
 
-        subset = results_df[results_df["NaCl Concentration (M)"] == conc]
+        subset = results_df[results_df[cols.nacl] == conc]
         for _, r in subset.iterrows():
-            pka = r.get("pKa (used)")
-            pka_unc = r.get("pKa uncertainty (ΔpKa)")
+            pka = r.get(cols.pka_app)
+            pka_unc = r.get(cols.pka_unc)
             qc = r.get("Equivalence QC Pass")
             veq = r.get("Veq (used)")
             method = r.get("Veq method", "")
-            pka_method = r.get("pKa method", "")
+            pka_method = r.get("pKa_app method", "")
             if (
-                "pKa (used, rounded)" in r
-                and "pKa uncertainty (rounded)" in r
-                and pd.notna(r.get("pKa uncertainty (rounded)"))
+                "Apparent pKa (rounded)" in r
+                and "Apparent pKa uncertainty (rounded)" in r
+                and pd.notna(r.get("Apparent pKa uncertainty (rounded)"))
             ):
-                pka = r.get("pKa (used, rounded)")
-                pka_unc = r.get("pKa uncertainty (rounded)")
+                pka = r.get("Apparent pKa (rounded)")
+                pka_unc = r.get("Apparent pKa uncertainty (rounded)")
             if "Veq (used, rounded)" in r and pd.notna(r.get("Veq (used, rounded)")):
                 veq = r.get("Veq (used, rounded)")
             if pd.notna(pka_unc):
                 print(
-                    f"     {r['Run']}: pKa={pka:.3f} ± {pka_unc:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
+                    f"     {r['Run']}: pKa_app={pka:.3f} ± {pka_unc:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
                 )
             else:
                 print(
-                    f"     {r['Run']}: pKa={pka:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
+                    f"     {r['Run']}: pKa_app={pka:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
                 )

@@ -20,16 +20,14 @@ logging.basicConfig(
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from salty.analysis import (
+    build_summary_plot_data,
     calculate_statistics,
     create_results_dataframe,
     print_statistics,
     process_all_files,
 )
-from salty.plotting import (
-    plot_statistical_summary,
-    plot_titration_curves,
-    save_data_to_csv,
-)
+from salty.output import save_data_to_csv
+from salty.plotting import plot_statistical_summary, plot_titration_curves
 
 
 def main():
@@ -106,15 +104,12 @@ def main():
     titration_plot_paths_with = plot_titration_curves(
         results, with_raw_dir, show_raw_pH=True
     )
-    titration_plot_paths_without = plot_titration_curves(
+    plot_titration_curves(
         results, without_raw_dir, show_raw_pH=False
     )
-    summary_plot_path_with = plot_statistical_summary(
-        stats_df, results_df, with_raw_dir
-    )
-    summary_plot_path_without = plot_statistical_summary(
-        stats_df, results_df, without_raw_dir
-    )
+    summary = build_summary_plot_data(stats_df, results_df)
+    plot_statistical_summary(summary, with_raw_dir)
+    plot_statistical_summary(summary, without_raw_dir)
     step_duration = time.time() - step_start
     logging.info(
         "Generated %d individual titration curve figures in each folder",
