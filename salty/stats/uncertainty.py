@@ -145,39 +145,45 @@ def add_subtract(
 
 
 def mul_div(
-    numerator: Mapping[str, Tuple[float, float, str]] | list[float],
-    denominator: Mapping[str, Tuple[float, float, str]] | list[float] | None = None,
+    values: Mapping[str, Tuple[float, float, str]] | list[float],
+    uncertainties: Mapping[str, Tuple[float, float, str]] | list[float] | None = None,
 ) -> dict | float:
     """Worst-case uncertainty for multiplication/division.
     
-    This function supports two APIs:
-    - List API: first param is list of values, second is list of uncertainties
-    - Mapping API: first param is numerator factors, second is denominator factors
+    Supports two calling conventions:
+    1. List API: mul_div(values_list, uncertainties_list)
+       - First param: list of numeric values to multiply
+       - Second param: list of uncertainties corresponding to each value
+       
+    2. Mapping API: mul_div(numerator_mapping, denominator_mapping)
+       - First param: dict of numerator factors {name: (value, uncertainty, unit)}
+       - Second param: dict of denominator factors {name: (value, uncertainty, unit)}
+       - Computes (product of numerators) / (product of denominators) with uncertainty
     """
-    if isinstance(numerator, list):
-        # List API: first param = values, second = uncertainties
-        if denominator is None or isinstance(denominator, dict):
+    if isinstance(values, list):
+        if uncertainties is None or isinstance(uncertainties, dict):
             raise ValueError("uncertainties list required with list-based values.")
-        if len(numerator) != len(denominator):
+        if len(values) != len(uncertainties):
             raise ValueError("values and uncertainties must be the same length.")
         # Guard against zero or non-finite values
         # Zero values are not allowed because relative uncertainty (u/v) requires division by value
-        for v, u in zip(numerator, denominator):
+        for v, u in zip(values, uncertainties):
             if not np.isfinite(v) or not np.isfinite(u):
                 raise ValueError(f"Non-finite value or uncertainty: {v}, {u}")
             if v == 0:
                 raise ValueError(f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}")
-        rel = sum(abs(u / v) for v, u in zip(numerator, denominator))
-        value = float(np.prod(numerator)) if numerator else math.nan
+        rel = sum(abs(u / v) for v, u in zip(values, uncertainties))
+        value = float(np.prod(values)) if values else math.nan
         return abs(value) * rel
 
-    if denominator is None or isinstance(denominator, list):
+    if uncertainties is None or isinstance(uncertainties, list):
         raise ValueError("Both numerator and denominator mappings are required.")
 
-    num_vals = [float(v[0]) for v in numerator.values()]
-    den_vals = [float(v[0]) for v in denominator.values()]
-    num_uncs = [float(v[1]) for v in numerator.values()]
-    den_uncs = [float(v[1]) for v in denominator.values()]
+    # Mapping API: values = numerator factors, uncertainties = denominator factors
+    num_vals = [float(v[0]) for v in values.values()]
+    den_vals = [float(v[0]) for v in uncertainties.values()]
+    num_uncs = [float(v[1]) for v in values.values()]
+    den_uncs = [float(v[1]) for v in uncertainties.values()]
 
     # Guard against zero or non-finite values in denominators and numerators
     # Zero values are not allowed because relative uncertainty (u/v) requires division by value
@@ -194,8 +200,8 @@ def mul_div(
 
     value = float(np.prod(num_vals) / np.prod(den_vals))
 
-    rel_terms = [abs(float(v[1]) / float(v[0])) for v in numerator.values()]
-    rel_terms += [abs(float(v[1]) / float(v[0])) for v in denominator.values()]
+    rel_terms = [abs(float(v[1]) / float(v[0])) for v in values.values()]
+    rel_terms += [abs(float(v[1]) / float(v[0])) for v in uncertainties.values()]
     rel = float(sum(rel_terms))
     return {"value": value, "uncertainty": abs(value) * rel}
 
