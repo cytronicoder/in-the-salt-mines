@@ -1,7 +1,9 @@
-"""
-Creates titration curve plots from precomputed analysis results.
+"""Render titration curve figures from validated analysis outputs.
 
-Plotting functions accept fully computed results and do not recompute chemistry.
+This module generates publication-quality plots from precomputed results.
+It does not perform chemistry, regression, or uncertainty propagation; it
+simply visualizes data that have already been validated by the analysis
+pipeline.
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 
 
 def setup_plot_style():
-    """High-legibility style for black-and-white report figures."""
+    """Configure a high-legibility, black-and-white plotting style."""
     try:
         if "seaborn-v0_8-whitegrid" in plt.style.available:
             plt.style.use("seaborn-v0_8-whitegrid")
@@ -56,35 +58,37 @@ def setup_plot_style():
 def plot_titration_curves(
     results: List[Dict], output_dir: str = "output", show_raw_pH: bool = False
 ) -> List[str]:
-    """
-    For each run, saves ONE black-and-white figure with 3 panels:
-    (1) pH vs Volume (raw measurements styled as errorbar markers) + precomputed interpolation curve
-    (2) First derivative vs Volume
-    (3) Henderson-Hasselbalch diagnostic (scatter + precomputed best-fit)
+    """Save three-panel titration figures for each analyzed run.
 
-    Returns list of PNG paths.
+    Each figure contains: (1) the pH–volume curve with a precomputed
+    interpolation, (2) the derivative curve used for equivalence detection,
+    and (3) a Henderson–Hasselbalch diagnostic plot derived from the validated
+    buffer-region regression. These plots are visual representations of
+    already validated results and do not imply additional statistical inference.
 
-    INPUT VALIDATION:
-    =================
-    All results must contain required keys:
-    - 'data': DataFrame with raw measurements
-    - 'step_data': DataFrame with aggregated steps
-    - 'dense_curve': DataFrame with interpolated curve (can be empty)
-    - 'buffer_region': DataFrame with buffer regression data (can be empty)
+    Args:
+        results: List of dictionaries returned by ``analyze_titration``.
+        output_dir: Directory in which to save PNG figures.
+        show_raw_pH: Whether to overlay raw pH measurements on the curve.
 
-    Raises KeyError if required keys are missing.
+    Returns:
+        A list of file paths to the generated PNG figures.
+
+    Raises:
+        ValueError: If the results list is empty.
+        KeyError: If required fields are missing from any result entry.
     """
     if not results:
         raise ValueError("results list is empty; nothing to plot")
 
-    # Validate first result for required structure
     required_keys = {"data", "step_data", "dense_curve", "buffer_region"}
-    if not required_keys.issubset(results[0].keys()):
-        missing = required_keys - set(results[0].keys())
-        raise KeyError(
-            f"Result dictionaries missing required keys: {missing}. "
-            f"Expected keys: {required_keys}"
-        )
+    for idx, result in enumerate(results):
+        missing = required_keys - set(result.keys())
+        if missing:
+            raise KeyError(
+                f"Result entry {idx} missing required keys: {missing}. "
+                f"Expected keys: {required_keys}"
+            )
     setup_plot_style()
     os.makedirs(output_dir, exist_ok=True)
 

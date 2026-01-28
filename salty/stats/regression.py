@@ -1,4 +1,9 @@
-"""Regression helpers for titration analysis (array-based, no DataFrame access)."""
+"""Array-based regression utilities for titration analysis.
+
+This module provides numerically focused regression routines that operate on
+validated NumPy arrays. It performs no chemistry-specific calculations and
+assumes that all scientific filtering has occurred upstream.
+"""
 
 from __future__ import annotations
 
@@ -16,10 +21,25 @@ if HAVE_SCIPY:
 def linear_regression(
     x: np.ndarray, y: np.ndarray, min_points: int = 3
 ) -> Dict[str, float]:
-    """
-    Linear regression y = m x + b with standard-error and CI reporting.
+    """Fit a straight line using ordinary least squares.
 
-    Raises ValueError if fewer than min_points or if variance is insufficient.
+    The regression returns slope, intercept, coefficient of determination, and
+    standard-error estimates. These diagnostics quantify statistical scatter
+    within the provided arrays and are not a substitute for systematic
+    uncertainty propagation.
+
+    Args:
+        x: Independent-variable values.
+        y: Dependent-variable values.
+        min_points: Minimum number of finite data points required.
+
+    Returns:
+        A dictionary containing slope (``m``), intercept (``b``), ``r2``,
+        standard errors, and an optional 95% confidence interval for the
+        intercept when SciPy is available.
+
+    Raises:
+        ValueError: If the dataset is too small or has insufficient variance.
     """
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
@@ -76,19 +96,26 @@ def slope_uncertainty_from_endpoints(
     xerr: np.ndarray,
     yerr: np.ndarray,
 ) -> Dict[str, float]:
-    """
-    Conservative slope uncertainty from endpoint extremes.
+    """Compute a worst-case slope uncertainty using endpoint error boxes.
 
-    UNCERTAINTY TYPE: SYSTEMATIC
-    =============================
-    This is a worst-case estimate based on endpoint error boxes,
-    NOT a statistical standard deviation.
+    This method propagates systematic measurement uncertainties in the
+    first and last data points to estimate a conservative slope range.
+    It intentionally avoids statistical assumptions and should be interpreted
+    as a worst-case bound, not a standard deviation.
 
-    Represents the systematic uncertainty in slope arising from
-    propagation of measurement uncertainties in x and y coordinates
-    of the first and last data points.
+    Args:
+        x: Independent-variable values.
+        y: Dependent-variable values.
+        xerr: Systematic uncertainty in ``x``.
+        yerr: Systematic uncertainty in ``y``.
 
-    Used for reporting slope uncertainty in pKa_app vs. concentration plots.
+    Returns:
+        A dictionary containing the maximum and minimum slopes consistent with
+        the error bounds, plus the half-range slope uncertainty.
+
+    Raises:
+        ValueError: If fewer than two finite points are provided or if the
+            endpoint configuration is invalid.
     """
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)

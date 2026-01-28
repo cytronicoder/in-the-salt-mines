@@ -1,54 +1,28 @@
-r"""
-Core analysis routines for weak acid-strong base titration data.
+"""Orchestrate two-stage pKa_app analysis for weak acid titration data.
 
-This module implements the two-stage pKa_app extraction protocol and provides
-all orchestration functions for processing titration experiments under varying
-ionic strength conditions.
+This module coordinates the full analysis pipeline for weak acid–strong base
+titrations conducted under varying ionic strength. It implements the two-stage
+apparent pKa (pKa_app) extraction protocol and enforces explicit, traceable data
+flow from raw measurements to summary statistics and plotting inputs.
 
-Scientific Background:
-    Weak acid dissociation in aqueous solution follows:
-        $\ce{HA <=> H+ + A-}$
-    
-    The Henderson–Hasselbalch equation relates pH to the conjugate ratio:
-        $\mathrm{pH} = \mathrm{p}K_a + \log_{10}\!\left(\dfrac{[\ce{A-}]}{[\ce{HA}]}\right)$
-    At the half-equivalence point (V = V_eq/2), [A⁻] ≈ [HA], so pH ≈ pKa.
+Scientific context:
+    The Henderson–Hasselbalch relationship is treated as an operational model
+    for concentration data. The extracted pKa values are apparent pKa_app
+    values influenced by ionic strength through activity coefficients; they
+    are therefore comparative rather than thermodynamic constants.
 
-    In non-zero ionic strength solutions, measured concentrations differ from
-    activities. The apparent pKa (pKa_app) extracted from concentration data
-    incorporates activity coefficient effects and is therefore ionic-strength
-    dependent.
+Methodological summary:
+    Stage 1 (coarse pKa_app estimate): identify V_eq from the derivative peak
+    and read the interpolated pH at V_eq/2.
 
-Two-Stage pKa_app Extraction Protocol:
-    Stage 1 (Coarse Estimate):
-        Locate the half-equivalence point (V = V_eq/2) and read pH from the
-        interpolated titration curve. This provides pKa_app_initial.
+    Stage 2 (refined pKa_app regression): restrict data to the chemically
+    defined buffer region (|pH − pKa_app,initial| ≤ 1) and fit the
+    Henderson–Hasselbalch model to obtain pKa_app with diagnostics.
 
-    Stage 2 (Refined Regression):
-        Using pK_{a,\mathrm{app},\mathrm{initial}}, define the buffer region as all points where
-        $\lvert \mathrm{pH} - \mathrm{p}K_{a,\mathrm{app}} \rvert \le 1$.
-        Perform Henderson–Hasselbalch regression within this region to obtain the final pK_{a,\mathrm{app}} estimate.
-
-Key Functions:
-    analyze_titration: Complete single-run analysis returning pKa_app, V_eq,
-        and associated uncertainties.
-
-    detect_equivalence_point: Identifies V_eq from maximum d(pH)/dV with
-        quality control checks for edge effects and multiple peaks.
-
-    process_all_files: Batch processing of multiple titration files.
-
-    calculate_statistics: Computes mean pKa_app per NaCl concentration with
-        systematic (half-range) uncertainty.
-
-Interpolation:
-    Uses PCHIP (Piecewise Cubic Hermite Interpolating Polynomial) when
-    scipy is available. PCHIP is shape-preserving and monotonicity-preserving,
-    making it suitable for sigmoidal titration curves.
-
-Uncertainty Model:
-    All reported uncertainties are systematic (worst-case bounds), not
-    statistical standard deviations. This is consistent with IB Chemistry
-    Data Processing conventions.
+Uncertainty philosophy:
+    All uncertainties are reported as systematic, worst-case bounds derived
+    from instrument limits and explicit propagation rules rather than from
+    statistical standard deviations.
 """
 
 from __future__ import annotations
@@ -73,34 +47,29 @@ from .stats.uncertainty import (
 )
 
 HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
+HAVE_SAVGOL = HAVE_SCIPY and (importlib.util.find_spec("scipy.signal") is not None)
 if HAVE_SCIPY:
     from scipy.interpolate import PchipInterpolator
-
-    try:
-        from scipy.signal import savgol_filter
-
-        _HAVE_SAVGOL = True
-    except Exception:
-        savgol_filter = None
-        _HAVE_SAVGOL = False
+if HAVE_SAVGOL:
+    from scipy.signal import savgol_filter
+else:
+    savgol_filter = None
 
 
 DEFAULT_BURETTE_UNC = 0.05
 DEFAULT_PH_METER_SYS = 0.00
-DEFAULT_PH_METER_RAND = 0.20
 
 
 def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """
-    Prepare x-y data for interpolation by sorting and deduplicating.
+    """Prepare x-y arrays for interpolation by sorting and deduplicating.
 
     Args:
-        x: Independent variable array (e.g., volume).
-        y: Dependent variable array (e.g., pH).
+        x: Independent-variable values (e.g., delivered volume).
+        y: Dependent-variable values (e.g., pH).
 
     Returns:
-        Tuple of sorted, deduplicated (x, y) arrays with NaN values removed.
-        Duplicate x values are averaged.
+        A tuple of ``(x, y)`` arrays with NaN values removed, sorted in
+        ascending x order, and deduplicated by averaging repeated x values.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -120,26 +89,24 @@ def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
 
 
 def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> Dict:
-    """
-    Construct a pH interpolation function from step-aggregated data.
+    """Construct a pH interpolation model from step-aggregated data.
 
-    Uses PCHIP (Piecewise Cubic Hermite Interpolating Polynomial) when scipy
-    is available, otherwise falls back to linear interpolation.
-
-    PCHIP is shape-preserving: it maintains monotonicity between data points,
-    making it appropriate for the characteristically sigmoidal titration curve.
+    The interpolation is used to evaluate pH at half-equivalence and to
+    generate smooth titration curves for visualization. When available, the
+    piecewise cubic Hermite interpolating polynomial (PCHIP) is preferred
+    because it preserves monotonicity and avoids overshoot in sigmoidal data.
 
     Args:
-        step_df: DataFrame with columns 'Volume (cm³)' and 'pH_step'.
-        method: Interpolation method ('pchip' or 'linear'). If None, uses
-            'pchip' when scipy is available.
+        step_df: DataFrame containing ``Volume (cm³)`` and ``pH_step`` columns.
+        method: Interpolation method (``"pchip"`` or ``"linear"``). When
+            ``None``, PCHIP is selected if SciPy is available.
 
     Returns:
-        Dictionary containing:
-            - 'method': Interpolation method used
-            - 'func': Interpolation function f(volume) → pH
-            - 'deriv_func': First derivative function (PCHIP only)
-            - 'x_min', 'x_max': Bounds of interpolation domain
+        A dictionary containing:
+            - ``method``: The interpolation method used.
+            - ``func``: Callable mapping volume to pH.
+            - ``deriv_func``: Callable for the first derivative (PCHIP only).
+            - ``x_min`` and ``x_max``: Bounds of the interpolation domain.
     """
     if (
         step_df.empty
@@ -205,6 +172,16 @@ def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> D
 
 
 def generate_dense_curve(interpolator: Dict, n_points: int = 1200) -> pd.DataFrame:
+    """Evaluate an interpolation model on a dense grid for plotting.
+
+    Args:
+        interpolator: Dictionary returned by ``build_ph_interpolator``.
+        n_points: Number of points used to sample the interpolation domain.
+
+    Returns:
+        A DataFrame with ``Volume (cm³)`` and ``pH_interp`` columns. Returns an
+        empty DataFrame if interpolation bounds are unavailable.
+    """
     if "x_min" not in interpolator or "x_max" not in interpolator:
         return pd.DataFrame(columns=["Volume (cm³)", "pH_interp"])
     x_dense = np.linspace(interpolator["x_min"], interpolator["x_max"], n_points)
@@ -235,7 +212,7 @@ def _smooth_ph_for_derivative(
         w = min(w, len(pp) if len(pp) % 2 == 1 else len(pp) - 1)
         w = max(w, 5)
 
-        if HAVE_SCIPY and _HAVE_SAVGOL and w >= 5 and w <= len(pp):
+        if HAVE_SCIPY and HAVE_SAVGOL and w >= 5 and w <= len(pp):
             try:
                 p_sg = savgol_filter(
                     pp, window_length=w, polyorder=min(poly, w - 2), mode="interp"
@@ -339,14 +316,28 @@ def detect_equivalence_point(
     min_post_points: int = 3,
     gate_on_qc: bool = False,
 ) -> Dict:
-    """
-    Detect equivalence point from derivative maximum with chemical plausibility checks.
+    """Detect the equivalence point using derivative maxima and QC checks.
 
-    CHEMICAL PLAUSIBILITY CHECKS:
-    ==============================
-    - V_eq must lie within expected titrant volume bounds (not at data edges)
-    - Multiple comparable maxima trigger warning (unstable detection)
-    - Post-equivalence coverage must be sufficient
+    The equivalence point is estimated from the maximum of ``d(pH)/dV`` in the
+    step-aggregated data. Additional checks enforce chemical plausibility,
+    including edge proximity, post-equivalence coverage, and multiple-peak
+    warnings.
+
+    Args:
+        step_df: Step-aggregated DataFrame containing ``Volume (cm³)`` and
+            ``pH_step`` columns.
+        interpolator: Optional interpolation dictionary from
+            ``build_ph_interpolator``. When provided, a derivative of the
+            interpolator is used for peak detection.
+        edge_buffer: Minimum number of points away from each data edge for
+            a valid equivalence point.
+        min_post_points: Minimum number of points required after the peak.
+        gate_on_qc: Whether to discard the peak if QC checks fail.
+
+    Returns:
+        A dictionary with equivalence volume, pH at equivalence, QC status,
+        and diagnostic metadata. If no valid equivalence point is found, the
+        returned values are NaN and QC is marked as failed.
     """
     if step_df.empty:
         return {
@@ -526,25 +517,24 @@ def _pka_app_unc_from_buffer_fit(
     ph_sys: float,
     method: str = "worst_case",
 ) -> float:
-    """
-    Compute systematic uncertainty in pKa_app from buffer region regression.
+    """Compute systematic uncertainty in pKa_app from buffer regression.
 
-    Combines three uncertainty contributions:
-        1. Regression intercept uncertainty (CI₉₅ or SE from fit)
-        2. Sensitivity to V_eq uncertainty (re-fit with V_eq ± ΔV_eq)
-        3. pH meter systematic uncertainty
+    This combines three systematic contributions: the regression intercept
+    uncertainty, sensitivity of pKa_app to V_eq uncertainty, and the pH meter
+    systematic limit. The result is a worst-case bound on the apparent pKa.
 
     Args:
         step_df: Aggregated volume-step data.
         veq: Equivalence volume in cm³.
-        veq_unc: Uncertainty in V_eq in cm³.
-        buffer_fit: Dictionary from fit_henderson_hasselbalch().
+        veq_unc: Systematic uncertainty in V_eq in cm³.
+        buffer_fit: Output dictionary from ``fit_henderson_hasselbalch``.
         ph_sys: Systematic pH meter uncertainty.
-        method: Combination method ('worst_case' or 'quadrature').
+        method: Uncertainty combination method (``"worst_case"`` or
+            ``"quadrature"``).
 
     Returns:
-        Combined systematic uncertainty in pKa_app. Returns NaN if
-        calculation is not possible (e.g., invalid inputs).
+        The combined systematic uncertainty in pKa_app. Returns NaN when
+        insufficient information is available.
     """
     if step_df.empty or buffer_fit is None:
         return np.nan
@@ -596,69 +586,42 @@ def analyze_titration(
     x_col: str = "Volume (cm³)",
     burette_unc: float = DEFAULT_BURETTE_UNC,
     ph_sys: float = DEFAULT_PH_METER_SYS,
-    ph_rand: float = DEFAULT_PH_METER_RAND,
     uncertainty_method: str = "worst_case",
     smooth_for_derivative: bool = True,
     savgol_window: int = 7,
     polyorder: int = 2,
 ) -> Dict:
-    """
-    Perform complete analysis of a single titration run.
+    """Perform a complete two-stage pKa_app analysis for one titration run.
 
-    Implements the two-stage pKa_app extraction protocol:
-
-    Stage 1:
-        Detect equivalence point (V_eq) from maximum d(pH)/dV. Estimate
-        pKa_app_initial as pH at half-equivalence (V = V_eq/2).
-
-    Stage 2:
-        Perform Henderson-Hasselbalch regression within the buffer region
-        (|pH − pKa_app_initial| ≤ 1) to obtain refined pKa_app.
+    Stage 1 determines the equivalence volume from ``d(pH)/dV`` and reads the
+    pH at half-equivalence to obtain a coarse apparent pKa estimate. Stage 2
+    applies Henderson–Hasselbalch regression within the chemically defined
+    buffer region (|pH − pKa_app,initial| ≤ 1) to refine pKa_app.
 
     Args:
-        df: Raw titration data with 'Volume (cm³)' and 'pH' columns.
-        run_name: Identifier for this run (e.g., '0.5M - Run 1').
-        x_col: Column name for independent variable.
-        burette_unc: Burette reading uncertainty in cm³ (default: 0.05).
-        ph_sys: Systematic pH meter uncertainty (default: 0.00).
-        ph_rand: Random pH meter uncertainty (default: 0.20).
-        uncertainty_method: 'worst_case' or 'quadrature'.
-        smooth_for_derivative: Whether to apply Savitzky-Golay smoothing
-            before computing d(pH)/dV (default: True).
-        savgol_window: Window length for Savitzky-Golay filter.
-        polyorder: Polynomial order for Savitzky-Golay filter.
+        df: Raw titration data with ``Volume (cm³)`` and ``pH`` columns.
+        run_name: Human-readable identifier for the experimental run.
+        x_col: Column name for the independent variable.
+        burette_unc: Systematic burette reading uncertainty in cm³.
+        ph_sys: Systematic pH meter uncertainty.
+        uncertainty_method: Uncertainty combination rule (``"worst_case"`` or
+            ``"quadrature"``).
+        smooth_for_derivative: Whether to apply Savitzky–Golay smoothing before
+            computing the derivative.
+        savgol_window: Window length for Savitzky–Golay smoothing.
+        polyorder: Polynomial order for Savitzky–Golay smoothing.
 
     Returns:
-        Dictionary containing:
-            - 'run_name': Run identifier
-            - 'pka_app': Apparent pKa from buffer region regression
-            - 'pka_app_uncertainty': Systematic uncertainty in pKa_app
-            - 'veq_used': Equivalence volume in cm³
-            - 'veq_uncertainty': Systematic uncertainty in V_eq
-            - 'slope_reg': Henderson-Hasselbalch slope (expected ≈ 1.0)
-            - 'r2_reg': Coefficient of determination for HH regression
-            - 'data': Original input DataFrame
-            - 'step_data': Aggregated step data
-            - 'dense_curve': Interpolated curve for plotting
-            - 'buffer_region': Buffer region data used for regression
-            - 'diagnostics': QC metrics and intermediate values
-
-        If analysis fails, returns dict with 'skip_reason' explaining failure.
+        A dictionary containing pKa_app, V_eq, uncertainties, and diagnostic
+        metadata required for plotting and reporting.
 
     Raises:
-        No exceptions are raised; failures are indicated via 'skip_reason'.
+        ValueError: If the dataset cannot support the two-stage protocol or if
+            the buffer-region regression fails.
     """
     step_df = aggregate_volume_steps(df)
     if step_df.empty:
-        return {
-            "run_name": run_name,
-            "skip_reason": "No valid volume/pH data after aggregation",
-            "x_col": x_col,
-            "data": df,
-            "step_data": step_df,
-            "dense_curve": pd.DataFrame(),
-            "buffer_region": pd.DataFrame(),
-        }
+        raise ValueError("No valid volume/pH data after aggregation.")
 
     if smooth_for_derivative:
         step_df = _smooth_ph_for_derivative(
@@ -686,30 +649,11 @@ def analyze_titration(
     )
 
     if not np.isfinite(half_eq_pH):
-        return {
-            "run_name": run_name,
-            "skip_reason": "Half-equivalence pH required for buffer-region selection",
-            "x_col": x_col,
-            "data": df,
-            "step_data": step_df,
-            "dense_curve": dense_curve,
-            "buffer_region": pd.DataFrame(),
-        }
+        raise ValueError("Half-equivalence pH required for buffer-region selection.")
 
-    try:
-        buffer_fit = fit_henderson_hasselbalch(
-            step_df, veq_used, pka_app_guess=half_eq_pH
-        )
-    except ValueError as e:
-        return {
-            "run_name": run_name,
-            "skip_reason": f"Buffer region regression failed: {e}",
-            "x_col": x_col,
-            "data": df,
-            "step_data": step_df,
-            "dense_curve": dense_curve,
-            "buffer_region": pd.DataFrame(),
-        }
+    buffer_fit = fit_henderson_hasselbalch(
+        step_df, veq_used, pka_app_guess=half_eq_pH
+    )
 
     buffer_df = buffer_fit.get("buffer_df", pd.DataFrame())
 
@@ -762,81 +706,78 @@ def analyze_titration(
 
 
 def process_all_files(file_list):
-    """
-    Batch-process multiple titration data files.
-
-    Iterates through all files, extracts individual runs, and performs
-    the two-stage pKa_app analysis on each run.
+    """Process multiple titration files with strict scientific validation.
 
     Args:
-        file_list: List of (filepath, nacl_concentration) tuples.
-            Filepath should point to a Logger Pro CSV export.
-            NaCl concentration should be in mol/L.
+        file_list: Iterable of ``(filepath, nacl_concentration)`` tuples.
+            Each filepath must point to a Logger Pro CSV export and each
+            concentration must be expressed in mol/L.
 
     Returns:
-        List of analysis result dictionaries from analyze_titration().
-        Each dictionary is augmented with 'nacl_conc' and 'source_file' fields.
+        A list of analysis result dictionaries from ``analyze_titration`` with
+        ``nacl_conc`` and ``source_file`` fields attached.
 
-    Note:
-        Prints progress information to stdout. Skipped runs are logged
-        with their skip reasons.
+    Raises:
+        ValueError: If any run lacks required volume data or if analysis fails.
+        FileNotFoundError: If any input file does not exist.
     """
     results = []
 
     for filepath, nacl_conc in file_list:
         print(f"Processing {filepath} (NaCl: {nacl_conc} M)...")
-        try:
-            df_raw = load_titration_data(filepath)
-            runs = extract_runs(df_raw)
+        df_raw = load_titration_data(filepath)
+        runs = extract_runs(df_raw)
 
-            for run_name, run_info in runs.items():
-                run_df = run_info["df"]
-                x_col = run_info["x_col"]
+        for run_name, run_info in runs.items():
+            run_df = run_info["df"]
+            x_col = run_info["x_col"]
 
-                if "Volume (cm³)" not in run_df.columns or len(run_df) < 10:
-                    continue
-
-                analysis = analyze_titration(
-                    run_df, f"{nacl_conc}M - {run_name}", x_col=x_col
+            if "Volume (cm³)" not in run_df.columns or len(run_df) < 10:
+                raise ValueError(
+                    f"Run '{run_name}' lacks sufficient volume data for analysis."
                 )
-                if analysis.get("skip_reason"):
-                    print(f"  Skipping {run_name}: {analysis['skip_reason']}")
-                    continue
 
-                analysis["nacl_conc"] = nacl_conc
-                analysis["source_file"] = os.path.basename(filepath)
-                results.append(analysis)
-
-        except Exception as e:
-            print(f"Error processing {filepath}: {e}")
+            analysis = analyze_titration(
+                run_df, f"{nacl_conc}M - {run_name}", x_col=x_col
+            )
+            analysis["nacl_conc"] = nacl_conc
+            analysis["source_file"] = os.path.basename(filepath)
+            results.append(analysis)
 
     return results
 
 
 def create_results_dataframe(results):
-    """
-    Convert list of analysis results into a structured DataFrame.
-
-    Creates a tabular representation of all pKa_app values, uncertainties,
-    and quality control metrics suitable for export or further analysis.
+    """Convert analysis results into a standardized results DataFrame.
 
     Args:
-        results: List of result dictionaries from process_all_files().
+        results: List of dictionaries returned by ``process_all_files``.
 
     Returns:
-        DataFrame with columns:
-            - 'Run': Run identifier
-            - 'NaCl Concentration (M)': Ionic strength condition
-            - 'Apparent pKa': pKa_app from buffer regression
-            - 'Uncertainty in Apparent pKa': Systematic uncertainty
-            - 'Equivalence QC Pass': Whether V_eq detection passed QC
-            - 'Veq (used)': Equivalence volume in cm³
-            - 'Slope (buffer fit)': HH regression slope (expected ≈ 1.0)
-            - 'R2 (buffer fit)': Coefficient of determination
+        A DataFrame with standardized column names for pKa_app values,
+        uncertainties, equivalence diagnostics, and provenance metadata.
+
+    Raises:
+        KeyError: If required result fields are missing from any entry.
     """
     rows = []
     cols = ResultColumns()
+    required_keys = {
+        "run_name",
+        "nacl_conc",
+        "pka_app",
+        "pka_method",
+        "pka_app_uncertainty",
+        "eq_qc_pass",
+        "veq_used",
+        "slope_reg",
+        "r2_reg",
+        "source_file",
+    }
     for res in results:
+        missing = required_keys - set(res.keys())
+        if missing:
+            raise KeyError(f"Result entry missing required keys: {missing}.")
         rows.append(
             {
                 "Run": res.get("run_name"),
@@ -863,33 +804,21 @@ def create_results_dataframe(results):
 
 
 def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute mean apparent pKa per NaCl concentration with systematic uncertainty.
+    """Compute mean pKa_app per ionic strength with systematic uncertainty.
 
-    Groups results by NaCl concentration and computes the mean pKa_app for
-    each condition. Uncertainty is reported as half-range (systematic),
-    not as a standard deviation (statistical).
-
-    Uncertainty Model (IB DP Methodology):
-        For n ≥ 2 trials:
-            Δ(pKa_app) = (max − min) / 2
-
-        For n = 1 trial:
-            Uses the regression-derived uncertainty from buffer fit.
-
-        This represents trial-to-trial systematic variation, consistent
-        with IB Chemistry Data Processing conventions.
+    The statistical summary reports the mean pKa_app for each NaCl
+    concentration and expresses uncertainty as a systematic half-range
+    (max − min)/2 across trials. This is a worst-case estimate and is not a
+    statistical standard deviation.
 
     Args:
-        results_df: DataFrame from create_results_dataframe() containing
-            individual pKa_app values per run.
+        results_df: DataFrame produced by ``create_results_dataframe``.
 
     Returns:
-        DataFrame with columns:
-            - 'NaCl Concentration (M)': Ionic strength condition
-            - 'Mean Apparent pKa': Average pKa_app across trials
-            - 'Uncertainty': Systematic half-range uncertainty
-            - 'n': Number of valid trials
+        A DataFrame with mean pKa_app, systematic uncertainty, and trial counts.
+
+    Raises:
+        KeyError: If required result columns are missing.
     """
     if results_df.empty:
         return pd.DataFrame(
@@ -901,8 +830,13 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
             ]
         )
 
-    rows = []
     cols = ResultColumns()
+    required = {cols.nacl, cols.pka_app}
+    missing = required - set(results_df.columns)
+    if missing:
+        raise KeyError(f"results_df missing required columns: {missing}.")
+
+    rows = []
     grouped = results_df.groupby(cols.nacl)
 
     for conc, group in grouped:
@@ -941,8 +875,21 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
 def build_summary_plot_data(
     stats_df: pd.DataFrame, results_df: pd.DataFrame
 ) -> Dict[str, object]:
-    """
-    Build plotting inputs without computing statistics inside plotting functions.
+    """Prepare validated plotting inputs for summary figures.
+
+    This function performs no plotting and no chemistry. It simply validates
+    required columns, computes helper arrays, and packages the data for
+    ``plot_statistical_summary``.
+
+    Args:
+        stats_df: Output of ``calculate_statistics``.
+        results_df: Output of ``create_results_dataframe``.
+
+    Returns:
+        A dictionary of NumPy arrays and metadata suitable for plotting.
+
+    Raises:
+        KeyError: If required columns are missing.
     """
     cols = ResultColumns()
     required_cols = [cols.nacl, "Mean Apparent pKa", "Uncertainty"]
@@ -1035,6 +982,12 @@ def build_summary_plot_data(
 
 
 def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
+    """Print a human-readable summary of pKa_app statistics.
+
+    Args:
+        stats_df: Summary statistics DataFrame.
+        results_df: Per-run results DataFrame.
+    """
     print("\nStatistical summary by NaCl concentration (IB-style):")
     if stats_df.empty:
         print("  (no data)")

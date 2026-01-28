@@ -1,51 +1,60 @@
-### Ionic Strength Effects on Weak Acid Dissociation
+# Ionic Strength Effects on Weak Acid Dissociation
 
-This is a Python package for analyzing weak acid-strong base titration data under varying ionic strength conditions. We extract apparent dissociation constants using a rigorous two-stage protocol with explicit treatment of activity coefficient effects.
+This repository addresses a single scientific question: **how does ionic strength (via NaCl addition) shift the apparent dissociation constant of a weak acid measured by titration?** The package provides a rigorous, publication-ready workflow for extracting apparent pKa values (pKa\_app) from weak acid–strong base titration data, emphasizing chemical validity, explicit uncertainty handling, and reproducible results.
 
-#### Scientific Background
+## Methodological Overview
 
-In aqueous solution, weak acid dissociation follows:
+### Apparent pKa Framework
 
-$\ce{HA <=> H+ + A-}$
+Weak acid dissociation in aqueous solution is described by:
 
-The thermodynamic dissociation constant relates activities, not concentrations:
+\[\ce{HA <=> H+ + A-}\]
 
-$K_a = \dfrac{\ce{a_{H+} a_{A-}}}{\ce{a_{HA}}} = \dfrac{\gamma_{H+}\,[\ce{H+}]\;\gamma_{A-}\,[\ce{A-}]}{\gamma_{HA}\,[\ce{HA}]}$
+Thermodynamic dissociation depends on activities, not concentrations:
 
-When we measure pH and concentrations, we obtain an apparent dissociation constant:
+\[K_a = \frac{a_{\ce{H+}}\,a_{\ce{A-}}}{a_{\ce{HA}}} = \frac{\gamma_{\ce{H+}}[\ce{H+}]\,\gamma_{\ce{A-}}[\ce{A-}]}{\gamma_{\ce{HA}}[\ce{HA}]}\]
 
-$K_{a,\mathrm{app}} = \dfrac{[\ce{H+}][\ce{A-}]}{[\ce{HA}]} = K_a \dfrac{\gamma_{HA}}{\gamma_{H+}\gamma_{A-}}$
+Measured concentrations therefore yield an **apparent** dissociation constant:
 
-Since activity coefficients (γ) depend on ionic strength, **pK\_{a,\mathrm{app}} varies with NaCl concentration**. Therefore, we ask how increasing ionic strength (via NaCl addition) can affect the measured apparent pKa of a weak acid (ethanoic acid).
+\[K_{a,\mathrm{app}} = \frac{[\ce{H+}][\ce{A-}]}{[\ce{HA}]} = K_a\,\frac{\gamma_{\ce{HA}}}{\gamma_{\ce{H+}}\gamma_{\ce{A-}}}\]
 
-For the purpose of this analysis, we apply the following two-stage protocol to extract $pK_{a,\mathrm{app}}$ from titration data:
+Because activity coefficients \(\gamma\) depend on ionic strength, **pKa\_app values are operational and comparative**, not thermodynamic constants. All conclusions are therefore interpreted as trends across ionic strength conditions.
 
-1. We first obtain a coarse estimate of pK\_{a,\mathrm{app}}. We locate the half-equivalence point (V = V*eq/2) where, by Henderson–Hasselbalch approximation, $\mathrm{pH} \approx \mathrm{p}K*{a,\mathrm{app}}$. This provides $\mathrm{p}K_{a,\mathrm{app},\mathrm{initial}}$.
-2. We then perform a refined Henderson–Hasselbalch regression within the **buffer region** ($\lvert \mathrm{pH} - \mathrm{p}K_{a,\mathrm{app}} \rvert \le 1$):
+### Two-Stage pKa\_app Extraction
 
-   $\displaystyle \mathrm{pH} = m\,\log_{10}\!\left(\frac{V}{V_{\mathrm{eq}} - V}\right) + \mathrm{p}K_{a,\mathrm{app}}$
+1. **Stage 1 (coarse estimate):**
+   - Identify the equivalence point \(V_{\mathrm{eq}}\) from the maximum \(\mathrm{d}pH/\mathrm{d}V\).
+   - Estimate \(pK_{a,\mathrm{app}}\) as the interpolated pH at \(V_{\mathrm{eq}}/2\).
 
-   The intercept gives the refined pK\_{a,\mathrm{app}}. The slope $m$ should be $\approx 1.0$ for an ideal buffer; significant deviations trigger warnings.
+2. **Stage 2 (refined regression):**
+   - Define the chemically valid buffer region as \(|pH - pK_{a,\mathrm{app}}| \le 1\), corresponding to \(0.1 \le [\ce{A-}]/[\ce{HA}] \le 10\).
+   - Fit the Henderson–Hasselbalch model within this region:
 
-Note that the Henderson–Hasselbalch equation is valid only where $0.1 \le \dfrac{[\ce{A-}]}{[\ce{HA}]} \le 10$, corresponding to $\lvert \mathrm{pH} - \mathrm{p}K_{a,\mathrm{app}} \rvert \le 1$. Restricting regression to this region ensures chemically meaningful results.
+   \[pH = m\,\log_{10}\!\left(\frac{V}{V_{\mathrm{eq}} - V}\right) + pK_{a,\mathrm{app}}\]
 
-#### Uncertainty Treatment
+   The intercept yields the refined apparent pKa\_app. Slope deviations from unity are reported as diagnostics.
 
-All uncertainties are systematic (worst-case bounds), consistent with IB Chemistry Data Processing methodology:
+### Strict Failure-on-Invalid-Science
 
-- Equipment uncertainties: Burette (±0.05 cm³), pH meter, balance
-- Propagation: Worst-case addition for sums/differences
-- Trial variation: Half-range (max − min)/2 for repeated measurements
+The pipeline is deliberately strict. Missing volume axes, insufficient buffer-region points, or non-physical equivalence estimates raise explicit exceptions rather than producing ambiguous outputs. No legacy or backward-compatible pathways are retained.
 
-#### Installation
+## Assumptions and Limitations
 
-To install and run this package, ensure you have:
+- **Apparent pKa only:** pKa\_app values include ionic strength effects via activity coefficients and cannot be interpreted as thermodynamic pKa values without external corrections.
+- **Henderson–Hasselbalch as operational model:** The model is applied only within the buffer region and is not assumed valid outside this window.
+- **Comparative conclusions:** Trends across NaCl concentrations are meaningful; absolute acid strength is not claimed.
 
-- Python 3.8 or higher
-- NumPy, pandas, matplotlib
-- SciPy (optional, enables PCHIP interpolation)
+## Reproducibility and Uncertainty Philosophy
 
-To install from the source repository, run:
+Uncertainty treatment follows systematic, worst-case propagation rules (IB Chemistry methodology):
+
+- Equipment limitations are propagated explicitly.
+- Trial-to-trial variability is reported as half-range (max − min)/2.
+- Reported uncertainties represent bounds, **not statistical standard deviations**.
+
+This conservative approach prioritizes reproducibility and interpretability in experimental contexts.
+
+## Installation
 
 ```bash
 git clone https://github.com/cytronicoder/in-the-salt-mines.git
@@ -53,121 +62,72 @@ cd in-the-salt-mines
 pip install -r requirements.txt
 ```
 
-Then, install development dependencies and set up pre-commit hooks:
+Development tools:
 
 ```bash
 pip install -r requirements-dev.txt
 pre-commit install
 ```
 
-#### Usage
-
-To run the complete analysis pipeline, execute in the terminal:
-
-```bash
-python main.py
-```
-
-This will:
-
-- Process all CSV files in `data/`
-- Generate three-panel titration figures (curve, derivative, HH plot)
-- Compute mean pKa_app per NaCl concentration with uncertainties
-- Save results to `output/` directory
-
-#### API
+## Usage
 
 ```python
 from salty.analysis import (
     analyze_titration,
+    build_summary_plot_data,
     calculate_statistics,
     create_results_dataframe,
     process_all_files,
-    build_summary_plot_data,
 )
-from salty.plotting import plot_titration_curves, plot_statistical_summary
 from salty.output import save_data_to_csv
+from salty.plotting import plot_statistical_summary, plot_titration_curves
 
-### Define input files: (filepath, NaCl_concentration_in_M)
 files = [
     ("data/ms besant go brr brr v2- 0.0m nacl.csv", 0.0),
     ("data/ms besant go brr brr v2- 0.2m nacl.csv", 0.2),
     ("data/ms besant go brr brr v2- 0.4m nacl.csv", 0.4),
 ]
 
-### Process all titration runs
 results = process_all_files(files)
-
-### Generate individual titration plots
-plot_titration_curves(results, output_dir="output/with_raw", show_raw_pH=True)
-
-### Compute statistics
 results_df = create_results_dataframe(results)
 stats_df = calculate_statistics(results_df)
 
-### Generate summary plot
 summary = build_summary_plot_data(stats_df, results_df)
+plot_titration_curves(results, output_dir="output/with_raw", show_raw_pH=True)
 plot_statistical_summary(summary, output_dir="output")
 
-### Save to CSV
 save_data_to_csv(results_df, stats_df, output_dir="output")
 ```
 
-#### Package Architecture
+## Package Structure
 
 ```
 salty/
-├── __init__.py          # Package exports
-├── analysis.py          # Main orchestration (two-stage protocol)
+├── analysis.py          # Two-stage orchestration and summary preparation
 ├── data_processing.py   # CSV parsing, run extraction, step aggregation
-├── output.py            # CSV export utilities
-├── schema.py            # DataFrame column definitions
-├── uncertainty.py       # Re-exports from stats/
-├── chemistry/           # No matplotlib dependencies
-│   ├── hh_model.py      # Henderson-Hasselbalch regression
-│   └── buffer_region.py # Buffer region selection
-├── stats/               # No chemistry dependencies
-│   ├── regression.py    # Linear regression utilities
-│   └── uncertainty.py   # IB DP uncertainty propagation
-└── plotting/            # No chemistry calculations
-    ├── titration_plots.py  # Three-panel titration figures
-    └── summary_plots.py    # pKa_app vs. concentration plots
+├── chemistry/           # Henderson–Hasselbalch regression and buffer selection
+├── stats/               # Regression and systematic uncertainty propagation
+├── plotting/            # Figures rendered from validated outputs
+└── output.py            # CSV export utilities
 ```
 
-- `chemistry/` modules contain no matplotlib imports
-- `plotting/` modules accept precomputed values only; no chemistry calculations
-- `stats/` modules are pure numerical utilities
+- **chemistry**: chemically meaningful computations only; no I/O or plotting.
+- **stats**: numerical methods only; no implicit DataFrame assumptions.
+- **plotting**: visualization only; no chemistry or regression logic.
 
-#### Testing
+## Testing
 
 ```bash
 pytest tests/ -v
 ```
 
-Tests verify:
+## Outputs
 
-- Chemical invariants (HH slope ≈ 1.0 for ideal buffer)
-- Failure modes (proper exceptions on invalid inputs)
-- Buffer region bounds enforcement
-- Plotting input validation
+- `individual_results.csv`: per-run pKa\_app values, uncertainties, V\_eq diagnostics
+- `statistical_summary.csv`: mean pKa\_app per ionic strength with systematic uncertainty
+- `titration_*.png`: three-panel per-run figures
+- `statistical_summary.png`: pKa\_app vs. NaCl concentration trend plot
 
-#### Output Files
-
-- `individual_results.csv`: Per-run pKa_app, V_eq, uncertainties, QC status
-- `statistical_summary.csv`: Mean pKa_app per NaCl concentration
-- `titration_*.png`: Three-panel figures for each run
-- `statistical_summary.png`: $\mathrm{p}K_{a,\mathrm{app}}$ vs. $[\ce{NaCl}]$ with trend line
-
-#### Interpretation Notes
-
-The extracted pKa_app values are operational parameters, not thermodynamic constants. Observed trends reflect:
-
-1. Changes in activity coefficients with ionic strength
-2. Possibly ion-pairing effects at high [NaCl]
-3. Combined effects that cannot be separated without additional measurements
-
-All conclusions should compare pKa_app values across ionic strengths. Absolute pKa interpretation requires activity coefficient corrections (e.g., Debye-Hückel theory), which are beyond this package's scope.
-
-#### License
+## License
 
 MIT License — see [LICENSE](LICENSE) for details.

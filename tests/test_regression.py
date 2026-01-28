@@ -1,3 +1,5 @@
+"""Test Henderson–Hasselbalch regression behavior."""
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -6,6 +8,11 @@ from salty.chemistry.hh_model import fit_henderson_hasselbalch
 
 
 def test_hh_regression_slope_close_to_one():
+    """Verify slope is near unity for idealized Henderson–Hasselbalch data.
+
+    Returns:
+        None.
+    """
     veq = 10.0
     pka_app = 4.75
     log_ratios = np.array([-0.5, -0.25, 0.0, 0.25, 0.5])
@@ -19,6 +26,11 @@ def test_hh_regression_slope_close_to_one():
 
 
 def test_invalid_buffer_region_raises():
+    """Raise a ValueError when the buffer region is chemically invalid.
+
+    Returns:
+        None.
+    """
     veq = 10.0
     pka_app = 4.75
     log_ratios = np.array([-0.5, 0.0, 0.5])

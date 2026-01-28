@@ -1,7 +1,8 @@
-"""
-Creates statistical summary plots from precomputed data.
+"""Render statistical summary plots from validated analysis outputs.
 
-Plotting functions accept fully computed results and do not compute statistics.
+The plotting functions in this module accept precomputed results and do not
+perform statistical inference. They visualize the apparent pKa trends under
+varying ionic strength without introducing additional computation.
 """
 
 from __future__ import annotations
@@ -17,22 +18,22 @@ from .titration_plots import setup_plot_style
 
 
 def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
-    """
-    Black-and-white plot: apparent pKa vs NaCl concentration.
+    """Plot mean apparent pKa versus NaCl concentration with uncertainties.
 
-    INPUT VALIDATION:
-    =================
-    summary must contain required fields:
-      - x: array of NaCl concentrations
-      - y_mean: array of mean apparent pKa values
-      - xerr: array of x uncertainties
-      - yerr: array of y uncertainties
-      - individual: list of dicts with x, y, xerr, yerr (can be empty)
-      - fit: dict with m, b, r2
-      - slope_uncertainty: dict with line endpoints and slope_unc (optional),
-        representing a conservative systematic estimate (not a statistical σ).
+    The plot visualizes precomputed summary statistics and, when available,
+    overlays a best-fit line and conservative systematic slope bounds.
+    It does not perform additional statistical inference.
 
-    Raises KeyError if required fields are missing.
+    Args:
+        summary: Dictionary created by ``build_summary_plot_data`` containing
+            arrays for mean values and uncertainties.
+        output_dir: Directory in which to save the PNG figure.
+
+    Returns:
+        Path to the saved PNG file.
+
+    Raises:
+        KeyError: If required fields are missing from ``summary``.
     """
     required_fields = {"x", "y_mean", "xerr", "yerr", "individual", "fit"}
     missing = required_fields - set(summary.keys())

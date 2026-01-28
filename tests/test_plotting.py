@@ -1,3 +1,5 @@
+"""Test plotting utilities using validated analysis inputs."""
+
 import os
 
 import numpy as np
@@ -10,6 +12,7 @@ from salty.schema import ResultColumns
 
 
 def make_dummy_results():
+    """Construct a minimal results payload for plotting tests."""
     step_df = pd.DataFrame(
         {
             "Volume (cm³)": [0.0, 1.0, 2.0, 3.0],
@@ -47,12 +50,28 @@ def make_dummy_results():
 
 
 def test_plot_titration_curves(tmp_path):
+    """Confirm that titration plots are written to disk.
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory.
+
+    Returns:
+        None.
+    """
     results = make_dummy_results()
     out = plot_titration_curves(results, output_dir=str(tmp_path))
     assert len(out) == 1
 
 
 def test_plot_statistical_summary(tmp_path):
+    """Confirm that the summary plot is written to disk.
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory.
+
+    Returns:
+        None.
+    """
     cols = ResultColumns()
     stats_df = pd.DataFrame(
         {
@@ -77,7 +96,11 @@ def test_plot_statistical_summary(tmp_path):
 
 
 def test_build_summary_plot_data_missing_results_df_columns():
-    """Test that build_summary_plot_data raises KeyError when results_df is missing required columns."""
+    """Raise errors when required results columns are missing.
+
+    Returns:
+        None.
+    """
     cols = ResultColumns()
     stats_df = pd.DataFrame(
         {

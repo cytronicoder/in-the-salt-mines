@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""
-This script validates that all required scientific and architectural
-improvements have been implemented correctly.
+"""Validate scientific and architectural refactoring requirements.
+
+This script performs lightweight checks to confirm that the two-stage pKa_app
+framework, documentation guardrails, and plotting validation rules are present.
 """
 
 import inspect
@@ -24,7 +25,11 @@ from salty.stats.uncertainty import combine_uncertainties
 
 
 def check_interpretation_guardrails():
-    """Check 1: Interpretation guardrails in docstrings."""
+    """Check interpretation guardrails in Henderson–Hasselbalch docstrings.
+
+    Returns:
+        True when required interpretation terms are present; otherwise False.
+    """
     print("CHECK 1: Interpretation Guardrails")
 
     doc = fit_henderson_hasselbalch.__doc__
@@ -54,7 +59,11 @@ def check_interpretation_guardrails():
 
 
 def check_two_stage_protocol():
-    """Check 2: Two-stage pKa extraction protocol documented."""
+    """Check documentation of the two-stage pKa_app protocol.
+
+    Returns:
+        True when the protocol is documented; otherwise False.
+    """
     print("CHECK 2: Two-Stage Protocol Documentation")
 
     hh_doc = fit_henderson_hasselbalch.__doc__
@@ -79,7 +88,11 @@ def check_two_stage_protocol():
 
 
 def check_slope_warning():
-    """Check 3: HH slope deviation warning."""
+    """Check that non-ideal slopes trigger diagnostic warnings.
+
+    Returns:
+        True when the warning is issued; otherwise False.
+    """
     print("CHECK 3: HH Slope Deviation Warning")
 
     # Generate synthetic data with bad slope
@@ -109,7 +122,11 @@ def check_slope_warning():
 
 
 def check_veq_bounds_warning():
-    """Check 4: V_eq bounds checking."""
+    """Check for equivalence-point bounds warnings in source code.
+
+    Returns:
+        True when bounds checks are detected; otherwise False.
+    """
     print("CHECK 4: V_eq Bounds Checking")
 
     # This is harder to test without full pipeline, but we can check if
@@ -125,7 +142,11 @@ def check_veq_bounds_warning():
 
 
 def check_buffer_min_points():
-    """Check 5: Buffer region minimum points enforcement."""
+    """Check enforcement of minimum buffer points in regression.
+
+    Returns:
+        True when insufficient points raise a ValueError; otherwise False.
+    """
     print("CHECK 5: Buffer Region Minimum Points")
 
     veq = 25.0
@@ -153,7 +174,11 @@ def check_buffer_min_points():
 
 
 def check_uncertainty_documentation():
-    """Check 6: Uncertainty type documentation."""
+    """Check documentation of systematic uncertainty handling.
+
+    Returns:
+        True when documentation references systematic uncertainty; otherwise False.
+    """
     print("CHECK 6: Uncertainty Type Documentation")
 
     # Check that systematic uncertainty is documented
@@ -181,7 +206,11 @@ def check_uncertainty_documentation():
 
 
 def check_plotting_validation():
-    """Check 7: Plotting input validation."""
+    """Check plotting input validation behavior.
+
+    Returns:
+        True when invalid inputs raise expected errors; otherwise False.
+    """
     print("CHECK 7: Plotting Input Validation")
 
     # Test empty results

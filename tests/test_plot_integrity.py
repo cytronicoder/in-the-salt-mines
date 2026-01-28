@@ -1,3 +1,5 @@
+"""Verify plotting functions do not mutate analysis results."""
+
 import copy
 
 import numpy as np
@@ -8,6 +10,7 @@ from salty.plotting import plot_titration_curves
 
 
 def _make_results():
+    """Create a minimal, validated results payload for plotting tests."""
     step_df = pd.DataFrame(
         {
             "Volume (cm³)": [0.0, 1.0, 2.0, 3.0],
@@ -45,6 +48,14 @@ def _make_results():
 
 
 def test_plot_does_not_mutate_results(tmp_path):
+    """Ensure plot generation does not mutate input result dictionaries.
+
+    Args:
+        tmp_path: Pytest fixture providing a temporary directory.
+
+    Returns:
+        None.
+    """
     results = _make_results()
     snapshot = copy.deepcopy(results)
 

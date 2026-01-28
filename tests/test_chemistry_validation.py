@@ -1,10 +1,8 @@
-"""
-Tests for chemical invariant validation and failure modes.
+"""Validate chemical invariants and failure modes in the HH workflow.
 
-These tests ensure that:
-1. Chemical interpretations are correct and explicitly bounded
-2. Numerical procedures are scientifically justified
-3. Code fails loudly on invalid science
+This test module verifies that the apparent pKa (pKa_app) extraction protocol
+is chemically constrained, that invalid inputs raise explicit exceptions, and
+that interpretation guardrails are documented for reproducibility.
 """
 
 import warnings
@@ -18,12 +16,13 @@ from salty.chemistry.hh_model import fit_henderson_hasselbalch
 
 
 class TestChemicalInvariants:
-    """Tests for chemical invariants in Henderson-Hasselbalch analysis."""
+    """Check chemically required invariants in Henderson–Hasselbalch fits."""
 
     def test_hh_slope_near_unity_ideal_buffer(self):
-        """
-        CHEMICAL INVARIANT TEST:
-        Henderson-Hasselbalch slope should be ≈ 1.0 for ideal buffer system.
+        """Verify that an ideal buffer yields a slope near unity.
+
+        Returns:
+            None.
         """
         # Generate synthetic ideal buffer data
         veq = 25.0
@@ -59,8 +58,10 @@ class TestChemicalInvariants:
         )
 
     def test_hh_slope_warning_non_ideal(self):
-        """
-        Test that significant slope deviations trigger warning.
+        """Confirm that non-ideal slopes trigger diagnostic warnings.
+
+        Returns:
+            None.
         """
         # Generate data with non-ideal slope
         veq = 25.0
@@ -89,8 +90,10 @@ class TestChemicalInvariants:
             assert "unity" in str(w[0].message).lower()
 
     def test_buffer_region_bounds(self):
-        """
-        Test that buffer region selection enforces |pH - pKa_app| ≤ 1.
+        """Ensure buffer selection enforces |pH − pKa_app| ≤ 1.
+
+        Returns:
+            None.
         """
         pka_app = 5.0
         pH_values = np.array([3.0, 3.9, 4.0, 4.5, 5.0, 5.5, 6.0, 6.1, 7.0])
@@ -109,12 +112,13 @@ class TestChemicalInvariants:
 
 
 class TestFailureModes:
-    """Tests for proper failure behavior on invalid inputs."""
+    """Verify explicit failure behavior on invalid scientific inputs."""
 
     def test_insufficient_buffer_points_raises_error(self):
-        """
-        FAILURE TEST:
-        Insufficient buffer points should raise ValueError, not silently return NaN.
+        """Raise an error when the buffer region is underpopulated.
+
+        Returns:
+            None.
         """
         # Create data with only 2 points in buffer region
         veq = 25.0
@@ -135,8 +139,10 @@ class TestFailureModes:
         assert "3" in str(exc_info.value)  # Minimum 3 points required
 
     def test_invalid_veq_raises_error(self):
-        """
-        Test that invalid V_eq values raise appropriate errors.
+        """Raise errors for non-physical or non-finite V_eq values.
+
+        Returns:
+            None.
         """
         step_df = pd.DataFrame(
             {
@@ -161,8 +167,10 @@ class TestFailureModes:
         assert "finite" in str(exc_info.value).lower()
 
     def test_invalid_pka_guess_raises_error(self):
-        """
-        Test that invalid pKa_app guess raises error.
+        """Raise errors when the pKa_app initial guess is invalid.
+
+        Returns:
+            None.
         """
         step_df = pd.DataFrame(
             {
@@ -176,8 +184,10 @@ class TestFailureModes:
         assert "finite" in str(exc_info.value).lower()
 
     def test_buffer_region_invalid_pka_raises_error(self):
-        """
-        Test that invalid pKa_app in buffer region selection raises error.
+        """Raise errors when buffer-region selection receives invalid pKa_app.
+
+        Returns:
+            None.
         """
         pH_values = np.array([4.0, 5.0, 6.0])
 
@@ -187,12 +197,13 @@ class TestFailureModes:
 
 
 class TestInterpretationMetadata:
-    """Tests for interpretation metadata in results."""
+    """Ensure interpretation guardrails are visible in model metadata."""
 
     def test_result_indicates_apparent_pka(self):
-        """
-        INTERPRETATION TEST:
-        Returned result metadata should clearly indicate pKa is apparent.
+        """Confirm that results explicitly indicate apparent pKa_app values.
+
+        Returns:
+            None.
         """
         veq = 25.0
         pka_true = 5.0
@@ -220,11 +231,13 @@ class TestInterpretationMetadata:
 
 
 class TestTwoStageProtocol:
-    """Tests for two-stage pKa_app extraction protocol."""
+    """Verify documentation of the two-stage pKa_app protocol."""
 
     def test_two_stage_protocol_documented(self):
-        """
-        Test that two-stage protocol is documented in function docstrings.
+        """Check that two-stage workflow is documented in docstrings.
+
+        Returns:
+            None.
         """
         # Check HH model docstring
         hh_doc = fit_henderson_hasselbalch.__doc__
@@ -237,8 +250,10 @@ class TestTwoStageProtocol:
         assert "pKa_app" in buffer_doc or "pka_app" in buffer_doc.lower()
 
     def test_pka_guess_defines_buffer_region(self):
-        """
-        Test that pKa_app guess is used to define buffer region (Stage 2).
+        """Confirm that Stage 1 pKa_app defines the Stage 2 buffer window.
+
+        Returns:
+            None.
         """
         veq = 25.0
         pka_initial = 5.0  # Stage 1 estimate
