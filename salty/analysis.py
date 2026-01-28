@@ -713,7 +713,7 @@ def build_summary_plot_data(
         raise KeyError(
             f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
         )
-    
+
     # Validate results_df columns
     required_results_cols = [cols.nacl, cols.pka_app]
     missing_results = [c for c in required_results_cols if c not in results_df.columns]

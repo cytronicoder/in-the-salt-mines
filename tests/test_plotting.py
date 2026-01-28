@@ -86,7 +86,7 @@ def test_build_summary_plot_data_missing_results_df_columns():
             "Uncertainty": [0.05, 0.07],
         }
     )
-    
+
     # Missing pka_app column
     results_df_missing_pka = pd.DataFrame(
         {
@@ -94,10 +94,10 @@ def test_build_summary_plot_data_missing_results_df_columns():
             "SomeOtherColumn": [1, 2],
         }
     )
-    
+
     with pytest.raises(KeyError, match="results_df is missing required columns"):
         build_summary_plot_data(stats_df, results_df_missing_pka)
-    
+
     # Missing nacl column
     results_df_missing_nacl = pd.DataFrame(
         {
