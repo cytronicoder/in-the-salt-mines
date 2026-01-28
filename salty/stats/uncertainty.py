@@ -230,7 +230,7 @@ def power(value: float, uncertainty: float, exponent: float, unit: str = "") -> 
         if value < 0:
             # Check if exponent is close to an integer (within floating-point tolerance)
             rounded_exp = round(exponent)
-            if not np.isclose(exponent, rounded_exp, atol=1e-9):
+            if not np.isclose(exponent, rounded_exp, rtol=1e-9, atol=1e-6):
                 raise ValueError(
                     f"Cannot compute power for negative value={value} with non-integer exponent={exponent}. "
                     "This would produce a complex number."
