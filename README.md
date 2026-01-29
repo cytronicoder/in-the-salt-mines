@@ -10,11 +10,11 @@ $$\ce{HA <=> H+ + A-}$$
 
 Thermodynamic dissociation depends on activities, not concentrations:
 
-$$K_a = \frac{a_{\ce{H+}}\,a_{\ce{A-}}}{a_{\ce{HA}}} = \frac{\gamma_{\ce{H+}}[\ce{H+}]\,\gamma_{\ce{A-}}[\ce{A-}]}{\gamma_{\ce{HA}}[\ce{HA}]}$$
+$$K_a = \frac{a_{\ce{H+}} a_{\ce{A-}}}{a_{\ce{HA}}} = \frac{\gamma_{\ce{H+}}[\ce{H+}] \gamma_{\ce{A-}}[\ce{A-}]}{\gamma_{\ce{HA}}[\ce{HA}]}$$
 
 Measured concentrations therefore yield an _apparent_ dissociation constant:
 
-$$K_{a,\mathrm{app}} = \frac{[\ce{H+}][\ce{A-}]}{[\ce{HA}]} = K_a\,\frac{\gamma_{\ce{HA}}}{\gamma_{\ce{H+}}\gamma_{\ce{A-}}}$$
+$$K_{a,\mathrm{app}} = \frac{[\ce{H+}][\ce{A-}]}{[\ce{HA}]} = K_a \frac{\gamma_{\ce{HA}}}{\gamma_{\ce{H+}}\gamma_{\ce{A-}}}$$
 
 Because activity coefficients $\gamma$ depend on ionic strength, $pK_{a,\mathrm{app}}$ values are operational and comparative, not thermodynamic constants. We interpret conclusions as trends across ionic strength conditions.
 
@@ -28,7 +28,7 @@ Because activity coefficients $\gamma$ depend on ionic strength, $pK_{a,\mathrm{
    - We define the chemically valid buffer region as $|pH - pK_{a,\mathrm{app}}| \le 1$, corresponding to $0.1 \le [\ce{A-}]/[\ce{HA}] \le 10$.
    - We fit the Henderson-Hasselbalch model within this region:
 
-   $$pH = m\,\log_{10}\!\left(\frac{V}{V_{\mathrm{eq}} - V}\right) + pK_{a,\mathrm{app}}$$
+   $$pH = m \log_{10} \left(\frac{V}{V_{\mathrm{eq}} - V}\right) + pK_{a,\mathrm{app}}$$
 
    The intercept yields the refined apparent $pK_{a,\mathrm{app}}$. We report slope deviations from unity as diagnostics.
 
