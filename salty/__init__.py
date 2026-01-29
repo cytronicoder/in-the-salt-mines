@@ -3,12 +3,15 @@
 __version__ = "1.0.0"
 __author__ = "Zeyu (Peter) Yao"
 
-from .analysis import (analyze_titration, build_summary_plot_data,
-                       calculate_statistics, create_results_dataframe,
-                       process_all_files)
+from .analysis import (
+    analyze_titration,
+    build_summary_plot_data,
+    calculate_statistics,
+    create_results_dataframe,
+    process_all_files,
+)
 from .output import save_data_to_csv
-from .plotting import (plot_statistical_summary, plot_titration_curves,
-                       setup_plot_style)
+from .plotting import plot_statistical_summary, plot_titration_curves, setup_plot_style
 
 __all__ = [
     "analyze_titration",

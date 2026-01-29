@@ -6,9 +6,13 @@ import os
 import sys
 import time
 
-from salty.analysis import (build_summary_plot_data, calculate_statistics,
-                            create_results_dataframe, print_statistics,
-                            process_all_files)
+from salty.analysis import (
+    build_summary_plot_data,
+    calculate_statistics,
+    create_results_dataframe,
+    print_statistics,
+    process_all_files,
+)
 from salty.output import save_data_to_csv
 from salty.plotting import plot_statistical_summary, plot_titration_curves
 
@@ -32,8 +36,6 @@ def main():
         Exit code ``0`` on success or ``1`` if no valid results are obtained.
     """
     try:
-        # Configure logging and ensure package imports succeed in normal Python
-        # environment: do not modify sys.path here.
         _configure_logging()
         start_time = time.time()
         logging.info("Initializing titration analysis pipeline")

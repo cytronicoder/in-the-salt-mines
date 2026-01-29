@@ -4,8 +4,7 @@ import math
 
 import pytest
 
-from salty.uncertainty import (add_subtract, mul_div, power,
-                               uncertainty_for_equipment)
+from salty.uncertainty import add_subtract, mul_div, power, uncertainty_for_equipment
 
 
 def test_equipment_uncertainty_lookup():

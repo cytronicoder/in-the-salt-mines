@@ -11,15 +11,15 @@ import numpy as np
 import pandas as pd
 
 from .chemistry.hh_model import fit_henderson_hasselbalch
-from .data_processing import (aggregate_volume_steps, extract_runs,
-                              load_titration_data)
+from .data_processing import aggregate_volume_steps, extract_runs, load_titration_data
 from .schema import ResultColumns
-from .stats.regression import (linear_regression,
-                               slope_uncertainty_from_endpoints)
-from .stats.uncertainty import (burette_delivered_uncertainty,
-                                combine_uncertainties,
-                                concentration_uncertainty,
-                                round_value_to_uncertainty)
+from .stats.regression import linear_regression, slope_uncertainty_from_endpoints
+from .stats.uncertainty import (
+    burette_delivered_uncertainty,
+    combine_uncertainties,
+    concentration_uncertainty,
+    round_value_to_uncertainty,
+)
 
 HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
 HAVE_SAVGOL = HAVE_SCIPY and (importlib.util.find_spec("scipy.signal") is not None)
