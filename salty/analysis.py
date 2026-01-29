@@ -11,15 +11,15 @@ import numpy as np
 import pandas as pd
 
 from .chemistry.hh_model import fit_henderson_hasselbalch
-from .data_processing import aggregate_volume_steps, extract_runs, load_titration_data
+from .data_processing import (aggregate_volume_steps, extract_runs,
+                              load_titration_data)
 from .schema import ResultColumns
-from .stats.regression import linear_regression, slope_uncertainty_from_endpoints
-from .stats.uncertainty import (
-    burette_delivered_uncertainty,
-    combine_uncertainties,
-    concentration_uncertainty,
-    round_value_to_uncertainty,
-)
+from .stats.regression import (linear_regression,
+                               slope_uncertainty_from_endpoints)
+from .stats.uncertainty import (burette_delivered_uncertainty,
+                                combine_uncertainties,
+                                concentration_uncertainty,
+                                round_value_to_uncertainty)
 
 HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
 HAVE_SAVGOL = HAVE_SCIPY and (importlib.util.find_spec("scipy.signal") is not None)
@@ -347,12 +347,11 @@ def detect_equivalence_point(
             threshold = 0.9 * max_deriv
             n_comparable = int(np.sum(d_vals >= threshold))
             if n_comparable > 1:
-                warnings.warn(
-                    f"Multiple possible equivalence points detected ({n_comparable} peaks); "
-                    f"result may be unstable.",
-                    UserWarning,
-                    stacklevel=2,
+                msg = (
+                    "Multiple possible equivalence points detected "
+                    f"({n_comparable} peaks); result may be unstable."
                 )
+                warnings.warn(msg, UserWarning, stacklevel=2)
 
         step_ok, step_reason, qc_metrics = _qc_equivalence(
             df, peak_idx, edge_buffer=edge_buffer, min_post_points=min_post_points
@@ -365,13 +364,11 @@ def detect_equivalence_point(
             if eq_x_step < (v_min + 0.05 * v_range) or eq_x_step > (
                 v_max - 0.05 * v_range
             ):
-                warnings.warn(
+                msg = (
                     f"Equivalence point V_eq={eq_x_step:.2f} is near data edge; "
-                    f"extend volume range for more reliable detection.",
-                    UserWarning,
-                    stacklevel=2,
+                    "extend volume range for more reliable detection."
                 )
-
+                warnings.warn(msg, UserWarning, stacklevel=2)
         if gate_on_qc and not step_ok:
             eq_x_step = np.nan
 
@@ -622,9 +619,7 @@ def analyze_titration(
     if not np.isfinite(half_eq_pH):
         raise ValueError("Half-equivalence pH required for buffer-region selection.")
 
-    buffer_fit = fit_henderson_hasselbalch(
-        step_df, veq_used, pka_app_guess=half_eq_pH
-    )
+    buffer_fit = fit_henderson_hasselbalch(step_df, veq_used, pka_app_guess=half_eq_pH)
 
     buffer_df = buffer_fit.get("buffer_df", pd.DataFrame())
 
@@ -707,12 +702,11 @@ def process_all_files(file_list):
                 import logging
 
                 logger = logging.getLogger(__name__)
-                logger.warning(
-                    "Skipping run '%s' in file '%s': contains only %d paired pH/volume rows (need >= 10).",
-                    run_name,
-                    os.path.basename(filepath),
-                    len(run_df),
+                msg = (
+                    "Skipping run '%s' in file '%s': only %d paired "
+                    "pH/volume rows (need >= 10)."
                 )
+                logger.warning(msg, run_name, os.path.basename(filepath), len(run_df))
                 continue
 
             analysis = analyze_titration(
@@ -874,14 +868,15 @@ def build_summary_plot_data(
     missing = [c for c in required_cols if c not in stats_df.columns]
     if missing:
         raise KeyError(
-            f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
+            "stats_df is missing required columns: " + ", ".join(map(str, missing))
         )
 
     required_results_cols = [cols.nacl, cols.pka_app]
     missing_results = [c for c in required_results_cols if c not in results_df.columns]
     if missing_results:
         raise KeyError(
-            f"results_df is missing required columns. Expected: {required_results_cols}, missing: {missing_results}."
+            "results_df is missing required columns: "
+            + ", ".join(map(str, missing_results))
         )
 
     x = pd.to_numeric(stats_df[cols.nacl], errors="coerce").to_numpy(dtype=float)
@@ -980,9 +975,9 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
         if pd.notna(unc):
             print(f" - {conc} M: Mean apparent pKa = {mean:.3f} ± {unc:.3f} (n={n})")
         else:
-            print(
-                f" - {conc} M: Mean apparent pKa = {mean:.3f} (uncertainty not available) (n={n})"
-            )
+            base = f" - {conc} M: Mean apparent pKa = {mean:.3f}"
+            extras = f" (uncertainty N/A) (n={n})"
+            print(base + extras)
 
         subset = results_df[results_df[cols.nacl] == conc]
         for _, r in subset.iterrows():
@@ -1002,10 +997,10 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
             if "Veq (used, rounded)" in r and pd.notna(r.get("Veq (used, rounded)")):
                 veq = r.get("Veq (used, rounded)")
             if pd.notna(pka_unc):
-                print(
-                    f"     {r['Run']}: pKa_app={pka:.3f} ± {pka_unc:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
-                )
+                base = f"     {r['Run']}: pKa_app={pka:.3f} ± {pka_unc:.3f}"
+                extras = f" ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
+                print(base + extras)
             else:
-                print(
-                    f"     {r['Run']}: pKa_app={pka:.3f} ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
-                )
+                base = f"     {r['Run']}: pKa_app={pka:.3f} ({pka_method})"
+                extras = f" | Veq={veq:.3f} ({method}) | QC: {qc}"
+                print(base + extras)

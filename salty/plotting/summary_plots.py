@@ -132,17 +132,22 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
 
     if np.isfinite(m_best) and np.isfinite(b_best) and np.isfinite(r2):
         if np.isfinite(slope_unc):
-            eq = (
-                rf"$pK_{{a,\mathrm{{app}}}} = ({m_best:.3f} \pm {slope_unc:.3f})\,c + {b_best:.3f}$"
-                + "\n"
-                + rf"$R^2 = {r2:.3f}$"
-            )
+            m = f"{m_best:.3f}"
+            s = f"{slope_unc:.3f}"
+            b = f"{b_best:.3f}"
+            eq_lines = [
+                rf"$pK_{{a,\mathrm{{app}}}} = ({m} \pm {s})\,c + {b}$",
+                rf"$R^2 = {r2:.3f}$",
+            ]
         else:
-            eq = (
-                rf"$pK_{{a,\mathrm{{app}}}} = {m_best:.3f}\,c + {b_best:.3f}$"
-                + "\n"
-                + rf"$R^2 = {r2:.3f}$"
-            )
+            m = f"{m_best:.3f}"
+            b = f"{b_best:.3f}"
+            eq_lines = [
+                rf"$pK_{{a,\mathrm{{app}}}} = {m}\,c + {b}$",
+                rf"$R^2 = {r2:.3f}$",
+            ]
+
+        eq = "\n".join(eq_lines)
 
         ax.text(
             0.02, 0.02, eq, transform=ax.transAxes, ha="left", va="bottom", fontsize=14

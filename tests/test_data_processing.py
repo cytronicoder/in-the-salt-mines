@@ -1,8 +1,6 @@
 import logging
 
-import pytest
-
-from salty.data_processing import load_titration_data, extract_runs
+from salty.data_processing import extract_runs, load_titration_data
 
 
 def test_extract_runs_skips_volume_only_run(caplog):

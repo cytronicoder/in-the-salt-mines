@@ -70,7 +70,7 @@ class TestChemicalInvariants:
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
-            result = fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_true)
+            _ = fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_true)
 
             assert len(w) == 1
             assert "slope" in str(w[0].message).lower()
@@ -90,10 +90,10 @@ class TestChemicalInvariants:
         expected = np.abs(pH_values - pka_app) <= 1.0
         np.testing.assert_array_equal(mask, expected)
 
-        assert mask[2] == True
-        assert mask[6] == True
-        assert mask[1] == False
-        assert mask[7] == False
+        assert mask[2]
+        assert mask[6]
+        assert not mask[1]
+        assert not mask[7]
 
 
 class TestFailureModes:

@@ -6,26 +6,23 @@ import os
 import sys
 import time
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("titration_analysis.log", mode="w"),
-    ],
-)
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from salty.analysis import (
-    build_summary_plot_data,
-    calculate_statistics,
-    create_results_dataframe,
-    print_statistics,
-    process_all_files,
-)
+from salty.analysis import (build_summary_plot_data, calculate_statistics,
+                            create_results_dataframe, print_statistics,
+                            process_all_files)
 from salty.output import save_data_to_csv
 from salty.plotting import plot_statistical_summary, plot_titration_curves
+
+
+def _configure_logging():
+    """Configure logging and ensure log file is reset on each run."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler("titration_analysis.log", mode="w"),
+        ],
+    )
 
 
 def main():
@@ -35,6 +32,9 @@ def main():
         Exit code ``0`` on success or ``1`` if no valid results are obtained.
     """
     try:
+        # Configure logging and ensure package imports succeed in normal Python
+        # environment: do not modify sys.path here.
+        _configure_logging()
         start_time = time.time()
         logging.info("Initializing titration analysis pipeline")
 

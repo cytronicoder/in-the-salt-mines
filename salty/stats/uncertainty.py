@@ -234,11 +234,9 @@ def mul_div(
 
         for v, u in zip(values, uncertainties):
             if not np.isfinite(v) or not np.isfinite(u):
-                raise ValueError(f"Non-finite value or uncertainty: {v}, {u}")
+                raise ValueError("Non-finite value or uncertainty")
             if v == 0:
-                raise ValueError(
-                    f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}"
-                )
+                raise ValueError("Zero value not allowed in mul_div")
         rel = sum(abs(u / v) for v, u in zip(values, uncertainties))
         value = float(np.prod(values)) if values else math.nan
         return abs(value) * rel
@@ -253,11 +251,9 @@ def mul_div(
 
     for v in num_vals + den_vals:
         if not np.isfinite(v):
-            raise ValueError(f"Non-finite value in multiplication/division: {v}")
+            raise ValueError("Non-finite value in multiplication/division")
         if v == 0:
-            raise ValueError(
-                f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}"
-            )
+            raise ValueError("Zero value not allowed in mul_div")
 
     for u in num_uncs + den_uncs:
         if not np.isfinite(u):
@@ -295,8 +291,7 @@ def power(
 
     if value == 0 and uncertainty > 0:
         raise ValueError(
-            f"Cannot compute power uncertainty for value=0 with non-zero uncertainty={uncertainty}. "
-            "Use endpoint propagation for worst-case bound."
+            "Cannot compute power uncertainty for value=0 with non-zero uncertainty."
         )
 
     if value == 0:
@@ -306,16 +301,20 @@ def power(
     else:
         if value < 0:
             rounded_exp = round(exponent)
-            if not np.isclose(exponent, rounded_exp, rtol=1e-9, atol=1e-6):
+            is_int = np.isclose(exponent, rounded_exp, rtol=1e-9, atol=1e-6)
+            if not is_int:
                 raise ValueError(
-                    f"Cannot compute power for negative value={value} with non-integer exponent={exponent}. "
-                    "This would produce a complex number."
+                    "Cannot compute power for negative values with "
+                    "non-integer exponents"
                 )
 
         out_val = value**exponent
         rel = abs(exponent) * (uncertainty / abs(value))
         out_unc = abs(out_val) * rel
-        text = f"Δy/y = {abs(exponent):.3g}·(Δx/x) = {abs(exponent):.3g}·({uncertainty:.3g}/{abs(value):.3g})"
+        a = f"{abs(exponent):.3g}"
+        b = f"{uncertainty:.3g}"
+        c = f"{abs(value):.3g}"
+        text = f"Δy/y = {a}·(Δx/x) = {a}·({b}/{c})"
     return {"value": out_val, "uncertainty": out_unc, "unit": unit, "text": text}
 
 

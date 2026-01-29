@@ -1,7 +1,6 @@
 """Test statistical summaries derived from pKa_app analysis results."""
 
 import numpy as np
-import pandas as pd
 
 from salty.analysis import calculate_statistics, create_results_dataframe
 from salty.schema import ResultColumns

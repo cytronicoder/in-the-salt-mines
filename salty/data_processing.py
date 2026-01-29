@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, Optional
 
-import logging
 import numpy as np
 import pandas as pd
 
@@ -145,11 +145,11 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
             tidy = run_df.dropna(subset=["pH", "Volume (cm³)"]).reset_index(drop=True)
             if tidy.empty:
                 n_vol = int(run_df["Volume (cm³)"].notna().sum())
-                logger.warning(
-                    "Run '%s' contains a Volume (cm³) axis but no paired pH readings; skipping (%d volume entries).",
-                    prefix,
-                    n_vol,
+                msg = (
+                    "Run '%s' contains a Volume (cm³) axis but no paired "
+                    "pH readings; skipping (%d volume entries)."
                 )
+                logger.warning(msg, prefix, n_vol)
                 continue
             runs[prefix] = {"df": tidy, "x_col": "Volume (cm³)"}
             continue

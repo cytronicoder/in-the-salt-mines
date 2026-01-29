@@ -101,10 +101,6 @@ salty/
 └── output.py            ### CSV export utilities
 ```
 
-- `chemistry`: chemically meaningful computations only; no I/O or plotting
-- `stats`: numerical methods only; no implicit DataFrame assumptions
-- `plotting`: visualization only; no chemistry or regression logic
-
 #### Testing
 
 ```bash
