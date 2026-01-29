@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Command-line entry point for two-stage pKa_app titration analysis.
-
-This script orchestrates the complete pipeline: data loading, run extraction,
-two-stage apparent pKa analysis, statistical summarization, figure creation,
-and CSV output. It is intended to be executed as a standalone program.
-"""
+"""Command-line entry point."""
 
 import logging
 import os
