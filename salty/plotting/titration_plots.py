@@ -1,10 +1,4 @@
-"""Render titration curve figures from validated analysis outputs.
-
-This module generates publication-quality plots from precomputed results.
-It does not perform chemistry, regression, or uncertainty propagation; it
-simply visualizes data that have already been validated by the analysis
-pipeline.
-"""
+"""Render titration curve figures from validated analysis outputs."""
 
 from __future__ import annotations
 
@@ -60,9 +54,9 @@ def plot_titration_curves(
 ) -> List[str]:
     """Save three-panel titration figures for each analyzed run.
 
-    Each figure contains: (1) the pH–volume curve with a precomputed
+    Each figure contains: (1) the pH-volume curve with a precomputed
     interpolation, (2) the derivative curve used for equivalence detection,
-    and (3) a Henderson–Hasselbalch diagnostic plot derived from the validated
+    and (3) a Henderson-Hasselbalch diagnostic plot derived from the validated
     buffer-region regression. These plots are visual representations of
     already validated results and do not imply additional statistical inference.
 
@@ -184,7 +178,7 @@ def plot_titration_curves(
             y_smooth = pd.to_numeric(dense_df["pH_interp"], errors="coerce").to_numpy(
                 dtype=float
             )
-            # Apply finite mask to avoid all-NaN case in nanargmin
+
             mask = np.isfinite(x_smooth) & np.isfinite(y_smooth)
             x_smooth = x_smooth[mask]
             y_smooth = y_smooth[mask]

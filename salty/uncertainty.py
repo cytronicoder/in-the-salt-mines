@@ -1,9 +1,4 @@
-"""Expose systematic uncertainty utilities through a flat namespace.
-
-This module re-exports the uncertainty propagation functions implemented in
-``salty.stats.uncertainty`` to simplify user-facing imports. The underlying
-methods follow worst-case, systematic uncertainty rules.
-"""
+"""Expose systematic uncertainty utilities through a flat namespace."""
 
 from .stats.uncertainty import (
     Quantity,

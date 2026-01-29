@@ -1,11 +1,4 @@
-"""Systematic uncertainty propagation utilities for titration analysis.
-
-The functions in this module implement worst-case (systematic) uncertainty
-propagation rules used in IB Chemistry data processing. These estimates
-represent equipment limits and explicit propagation bounds; they are not
-statistical standard deviations and must be interpreted as conservative
-experimental uncertainty ranges.
-"""
+"""Systematic uncertainty propagation utilities for titration analysis."""
 
 from __future__ import annotations
 
@@ -238,8 +231,7 @@ def mul_div(
             raise ValueError("uncertainties list required with list-based values.")
         if len(values) != len(uncertainties):
             raise ValueError("values and uncertainties must be the same length.")
-        # Guard against zero or non-finite values
-        # Zero values are not allowed because relative uncertainty (u/v) requires division by value
+
         for v, u in zip(values, uncertainties):
             if not np.isfinite(v) or not np.isfinite(u):
                 raise ValueError(f"Non-finite value or uncertainty: {v}, {u}")
@@ -254,14 +246,11 @@ def mul_div(
     if uncertainties is None or isinstance(uncertainties, list):
         raise ValueError("Both numerator and denominator mappings are required.")
 
-    # Mapping API: values = numerator factors, uncertainties = denominator factors
     num_vals = [float(v[0]) for v in values.values()]
     den_vals = [float(v[0]) for v in uncertainties.values()]
     num_uncs = [float(v[1]) for v in values.values()]
     den_uncs = [float(v[1]) for v in uncertainties.values()]
 
-    # Guard against zero or non-finite values in denominators and numerators
-    # Zero values are not allowed because relative uncertainty (u/v) requires division by value
     for v in num_vals + den_vals:
         if not np.isfinite(v):
             raise ValueError(f"Non-finite value in multiplication/division: {v}")
@@ -270,7 +259,6 @@ def mul_div(
                 f"Zero value not allowed in mul_div (relative uncertainty requires u/v): {v}"
             )
 
-    # Guard against non-finite uncertainties
     for u in num_uncs + den_uncs:
         if not np.isfinite(u):
             raise ValueError(f"Non-finite uncertainty in multiplication/division: {u}")
@@ -305,8 +293,6 @@ def power(
     uncertainty = abs(float(uncertainty))
     exponent = float(exponent)
 
-    # Reject value==0 with non-zero uncertainty (similar to mul_div's zero guard)
-    # Computing worst-case uncertainty requires evaluating endpoints (value ± uncertainty)^exponent
     if value == 0 and uncertainty > 0:
         raise ValueError(
             f"Cannot compute power uncertainty for value=0 with non-zero uncertainty={uncertainty}. "
@@ -314,14 +300,11 @@ def power(
         )
 
     if value == 0:
-        # value==0 and uncertainty==0
         out_val = 0.0
         out_unc = 0.0
         text = f"Δy/y = {abs(exponent):.3g}·(Δx/x) = 0 (value=0, uncertainty=0)"
     else:
-        # Validate that negative values with non-integer exponents won't produce complex results
         if value < 0:
-            # Check if exponent is close to an integer (within floating-point tolerance)
             rounded_exp = round(exponent)
             if not np.isclose(exponent, rounded_exp, rtol=1e-9, atol=1e-6):
                 raise ValueError(
@@ -349,12 +332,12 @@ def concentration_uncertainty(concentration: float) -> float:
     if concentration == 0.0 or not math.isfinite(concentration):
         return 0.0
 
-    mw = 58.44  # g/mol
-    volume = 0.1  # L
-    mass = concentration * volume * mw  # g
+    mw = 58.44
+    volume = 0.1
+    mass = concentration * volume * mw
 
-    delta_mass = 0.01  # g
-    delta_volume = 0.0001  # L (0.10 cm^3)
+    delta_mass = 0.01
+    delta_volume = 0.0001
 
     rel_unc_m = delta_mass / mass
     rel_unc_v = delta_volume / volume

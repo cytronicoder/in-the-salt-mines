@@ -1,9 +1,4 @@
-"""Select chemically valid buffer regions for Henderson–Hasselbalch analysis.
-
-This module defines the buffer-region selection criteria used in the two-stage
-pKa_app extraction workflow. The selection is purely chemical and does not
-perform regression, plotting, or file I/O.
-"""
+"""Select chemically valid buffer regions for Henderson-Hasselbalch analysis."""
 
 from __future__ import annotations
 
@@ -13,9 +8,9 @@ import numpy as np
 def select_buffer_region(pH: np.ndarray, pKa_app: float) -> np.ndarray:
     """Return a boolean mask for the chemically valid buffer region.
 
-    The buffer region is defined as ``|pH − pKa_app| ≤ 1``. This operational
+    The buffer region is defined as ``|pH - pKa_app| ≤ 1``. This operational
     criterion corresponds to ``0.1 ≤ [A⁻]/[HA] ≤ 10`` and is where the
-    Henderson–Hasselbalch approximation is considered chemically defensible.
+    Henderson-Hasselbalch approximation is considered chemically defensible.
     The pKa_app argument must be the Stage 1 (half-equivalence) estimate used
     to define the Stage 2 regression window.
 

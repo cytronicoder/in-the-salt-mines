@@ -1,4 +1,4 @@
-"""Henderson–Hasselbalch regression utilities for apparent pKa extraction.
+"""Henderson-Hasselbalch regression utilities for apparent pKa extraction.
 
 This module implements the Stage 2 regression step in the two-stage pKa_app
 workflow. It performs no I/O and relies exclusively on chemically validated
@@ -20,12 +20,12 @@ from salty.stats.regression import linear_regression
 def fit_henderson_hasselbalch(
     step_df: pd.DataFrame, veq: float, pka_app_guess: float
 ) -> Dict[str, object]:
-    r"""Fit the Henderson–Hasselbalch model within the buffer region.
+    r"""Fit the Henderson-Hasselbalch model within the buffer region.
 
-    This function implements Stage 2 (refined regression) of the two-stage
+    This function implements stage 2 (refined regression) of the two-stage
     pKa_app extraction workflow. Stage 1 provides a coarse estimate from the
     half-equivalence point; Stage 2 uses that estimate to define the buffer
-    region (``|pH − pKa_app| ≤ 1``) and performs the regression only within that
+    region (``|pH - pKa_app| ≤ 1``) and performs the regression only within that
     chemically valid window.
 
     Scientific interpretation:
@@ -101,8 +101,6 @@ def fit_henderson_hasselbalch(
     slope = float(reg["m"])
     intercept = float(reg["b"])
 
-    # SLOPE EXPECTATION CHECK (DIAGNOSTIC)
-    # Henderson-Hasselbalch theory predicts slope ≈ 1.0 for ideal buffer
     if abs(slope - 1.0) > 0.1:
         warnings.warn(
             f"HH slope ({slope:.3f}) deviates significantly from unity; "

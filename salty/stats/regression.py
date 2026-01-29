@@ -1,9 +1,4 @@
-"""Array-based regression utilities for titration analysis.
-
-This module provides numerically focused regression routines that operate on
-validated NumPy arrays. It performs no chemistry-specific calculations and
-assumes that all scientific filtering has occurred upstream.
-"""
+"""Array-based regression utilities for titration analysis."""
 
 from __future__ import annotations
 

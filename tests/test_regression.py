@@ -1,4 +1,4 @@
-"""Test Henderson–Hasselbalch regression behavior."""
+"""Test Henderson-Hasselbalch regression behavior."""
 
 import numpy as np
 import pandas as pd
@@ -8,7 +8,7 @@ from salty.chemistry.hh_model import fit_henderson_hasselbalch
 
 
 def test_hh_regression_slope_close_to_one():
-    """Verify slope is near unity for idealized Henderson–Hasselbalch data.
+    """Verify slope is near unity for idealized Henderson-Hasselbalch data.
 
     Returns:
         None.

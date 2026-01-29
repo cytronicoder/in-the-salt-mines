@@ -1,10 +1,4 @@
-"""Persist titration analysis results to structured CSV outputs.
-
-This module contains simple file-output utilities that serialize validated
-analysis results and statistical summaries. It performs no chemistry or
-regression and assumes that inputs already comply with the two-stage pKa_app
-framework.
-"""
+"""Persist titration analysis results to structured CSV outputs."""
 
 from __future__ import annotations
 

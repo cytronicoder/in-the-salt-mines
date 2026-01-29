@@ -1,9 +1,4 @@
-"""Render statistical summary plots from validated analysis outputs.
-
-The plotting functions in this module accept precomputed results and do not
-perform statistical inference. They visualize the apparent pKa trends under
-varying ionic strength without introducing additional computation.
-"""
+"""Render statistical summary plots from validated analysis outputs."""
 
 from __future__ import annotations
 

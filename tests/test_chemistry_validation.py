@@ -1,9 +1,4 @@
-"""Validate chemical invariants and failure modes in the HH workflow.
-
-This test module verifies that the apparent pKa (pKa_app) extraction protocol
-is chemically constrained, that invalid inputs raise explicit exceptions, and
-that interpretation guardrails are documented for reproducibility.
-"""
+"""Validate chemical invariants and failure modes in the HH workflow."""
 
 import warnings
 
@@ -16,7 +11,7 @@ from salty.chemistry.hh_model import fit_henderson_hasselbalch
 
 
 class TestChemicalInvariants:
-    """Check chemically required invariants in Henderson–Hasselbalch fits."""
+    """Check chemically required invariants in Henderson-Hasselbalch fits."""
 
     def test_hh_slope_near_unity_ideal_buffer(self):
         """Verify that an ideal buffer yields a slope near unity.
@@ -24,12 +19,10 @@ class TestChemicalInvariants:
         Returns:
             None.
         """
-        # Generate synthetic ideal buffer data
         veq = 25.0
         pka_true = 5.0
         volumes = np.linspace(5.0, 23.0, 30)
 
-        # Ideal HH: pH = pKa + log10(V / (Veq - V))
         log_ratios = np.log10(volumes / (veq - volumes))
         pH_ideal = pka_true + log_ratios
 
@@ -45,13 +38,11 @@ class TestChemicalInvariants:
         slope = result["slope_reg"]
         pka_fit = result["pka_app"]
 
-        # Slope should be very close to 1.0 for ideal buffer
         assert abs(slope - 1.0) < 0.05, (
             f"HH slope ({slope:.3f}) deviates from unity for ideal buffer. "
             "Chemical invariant violated."
         )
 
-        # pKa should match true value
         assert abs(pka_fit - pka_true) < 0.05, (
             f"Fitted pKa_app ({pka_fit:.3f}) differs from true pKa ({pka_true:.3f}). "
             "Regression accuracy issue."
@@ -63,13 +54,11 @@ class TestChemicalInvariants:
         Returns:
             None.
         """
-        # Generate data with non-ideal slope
         veq = 25.0
         pka_true = 5.0
         volumes = np.linspace(5.0, 23.0, 30)
 
         log_ratios = np.log10(volumes / (veq - volumes))
-        # Introduce non-ideal slope (m = 0.7)
         pH_non_ideal = pka_true + 0.7 * log_ratios
 
         step_df = pd.DataFrame(
@@ -79,18 +68,16 @@ class TestChemicalInvariants:
             }
         )
 
-        # Should trigger warning about slope deviation
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
             result = fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_true)
 
-            # Check that warning was issued
             assert len(w) == 1
             assert "slope" in str(w[0].message).lower()
             assert "unity" in str(w[0].message).lower()
 
     def test_buffer_region_bounds(self):
-        """Ensure buffer selection enforces |pH − pKa_app| ≤ 1.
+        """Ensure buffer selection enforces |pH - pKa_app| ≤ 1.
 
         Returns:
             None.
@@ -100,15 +87,13 @@ class TestChemicalInvariants:
 
         mask = select_buffer_region(pH_values, pka_app)
 
-        # Only pH values within ±1 of pKa should be selected
         expected = np.abs(pH_values - pka_app) <= 1.0
         np.testing.assert_array_equal(mask, expected)
 
-        # Should include 4.0 to 6.0 (inclusive)
-        assert mask[2] == True  # pH = 4.0
-        assert mask[6] == True  # pH = 6.0
-        assert mask[1] == False  # pH = 3.9
-        assert mask[7] == False  # pH = 6.1
+        assert mask[2] == True
+        assert mask[6] == True
+        assert mask[1] == False
+        assert mask[7] == False
 
 
 class TestFailureModes:
@@ -120,11 +105,9 @@ class TestFailureModes:
         Returns:
             None.
         """
-        # Create data with only 2 points in buffer region
         veq = 25.0
         pka_guess = 5.0
 
-        # Only 2 points near pKa
         step_df = pd.DataFrame(
             {
                 "Volume (cm³)": [10.0, 12.0],
@@ -136,7 +119,7 @@ class TestFailureModes:
             fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_guess)
 
         assert "insufficient" in str(exc_info.value).lower()
-        assert "3" in str(exc_info.value)  # Minimum 3 points required
+        assert "3" in str(exc_info.value)
 
     def test_invalid_veq_raises_error(self):
         """Raise errors for non-physical or non-finite V_eq values.
@@ -151,17 +134,14 @@ class TestFailureModes:
             }
         )
 
-        # Negative V_eq
         with pytest.raises(ValueError) as exc_info:
             fit_henderson_hasselbalch(step_df, -5.0, pka_app_guess=5.0)
         assert "positive" in str(exc_info.value).lower()
 
-        # Zero V_eq
         with pytest.raises(ValueError) as exc_info:
             fit_henderson_hasselbalch(step_df, 0.0, pka_app_guess=5.0)
         assert "positive" in str(exc_info.value).lower()
 
-        # NaN V_eq
         with pytest.raises(ValueError) as exc_info:
             fit_henderson_hasselbalch(step_df, np.nan, pka_app_guess=5.0)
         assert "finite" in str(exc_info.value).lower()
@@ -220,11 +200,9 @@ class TestInterpretationMetadata:
 
         result = fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_true)
 
-        # Result should have 'pka_app' key (not 'pka')
         assert "pka_app" in result
-        assert "pka" not in result  # Should not use ambiguous 'pka' key
+        assert "pka" not in result
 
-        # Function docstring should mention apparent pKa
         doc = fit_henderson_hasselbalch.__doc__
         assert "apparent" in doc.lower() or "pKa_app" in doc
         assert "operational" in doc.lower() or "concentration-based" in doc.lower()
@@ -239,13 +217,11 @@ class TestTwoStageProtocol:
         Returns:
             None.
         """
-        # Check HH model docstring
         hh_doc = fit_henderson_hasselbalch.__doc__
         assert "stage" in hh_doc.lower()
         assert "half-equivalence" in hh_doc.lower()
         assert "coarse" in hh_doc.lower() or "initial" in hh_doc.lower()
 
-        # Check buffer region docstring
         buffer_doc = select_buffer_region.__doc__
         assert "pKa_app" in buffer_doc or "pka_app" in buffer_doc.lower()
 
@@ -256,9 +232,8 @@ class TestTwoStageProtocol:
             None.
         """
         veq = 25.0
-        pka_initial = 5.0  # Stage 1 estimate
+        pka_initial = 5.0
 
-        # Create data spanning pH 3 to 7
         volumes = np.linspace(5.0, 23.0, 40)
         log_ratios = np.log10(volumes / (veq - volumes))
         pH_values = pka_initial + log_ratios
@@ -270,19 +245,15 @@ class TestTwoStageProtocol:
             }
         )
 
-        # Fit with initial guess
         result = fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_initial)
 
-        # Buffer region should be centered around pka_initial ± 1
         buffer_df = result["buffer_df"]
         buffer_pH = buffer_df["pH_step"].values
 
-        # All buffer pH values should be within ±1 of initial guess
         assert np.all(
             np.abs(buffer_pH - pka_initial) <= 1.0
         ), "Buffer region not properly defined by pKa_app initial guess"
 
-        # Should have reasonable number of points (not too few, not all)
         n_buffer = len(buffer_df)
         n_total = len(step_df)
         assert (

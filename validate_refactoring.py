@@ -25,7 +25,7 @@ from salty.stats.uncertainty import combine_uncertainties
 
 
 def check_interpretation_guardrails():
-    """Check interpretation guardrails in Henderson–Hasselbalch docstrings.
+    """Check interpretation guardrails in Henderson-Hasselbalch docstrings.
 
     Returns:
         True when required interpretation terms are present; otherwise False.
@@ -95,12 +95,11 @@ def check_slope_warning():
     """
     print("CHECK 3: HH Slope Deviation Warning")
 
-    # Generate synthetic data with bad slope
     veq = 25.0
     pka = 5.0
     volumes = np.linspace(5.0, 23.0, 30)
     log_ratios = np.log10(volumes / (veq - volumes))
-    pH_bad = pka + 0.7 * log_ratios  # Slope = 0.7, far from 1.0
+    pH_bad = pka + 0.7 * log_ratios
 
     step_df = pd.DataFrame(
         {
@@ -129,8 +128,6 @@ def check_veq_bounds_warning():
     """
     print("CHECK 4: V_eq Bounds Checking")
 
-    # This is harder to test without full pipeline, but we can check if
-    # detect_equivalence_point has the necessary checks
     source = inspect.getsource(detect_equivalence_point)
 
     if "warning" in source.lower() and "edge" in source.lower():
@@ -152,7 +149,6 @@ def check_buffer_min_points():
     veq = 25.0
     pka = 5.0
 
-    # Only 2 points - should fail
     step_df = pd.DataFrame(
         {
             "Volume (cm³)": [10.0, 12.0],
@@ -181,7 +177,6 @@ def check_uncertainty_documentation():
     """
     print("CHECK 6: Uncertainty Type Documentation")
 
-    # Check that systematic uncertainty is documented
     stats_doc = calculate_statistics.__doc__
     slope_doc = slope_uncertainty_from_endpoints.__doc__
 
@@ -213,7 +208,6 @@ def check_plotting_validation():
     """
     print("CHECK 7: Plotting Input Validation")
 
-    # Test empty results
     try:
         plot_titration_curves([])
         print("  ✗ Did not raise error for empty results\n")
@@ -224,7 +218,6 @@ def check_plotting_validation():
         else:
             print(f"  ? Raised error but unclear: {e}")
 
-    # Test missing keys
     try:
         plot_titration_curves([{"data": pd.DataFrame()}])
         print("  ✗ Did not raise error for missing keys\n")
@@ -255,7 +248,6 @@ def check_apparent_pka_labels():
         print(f"  ✗ Schema missing 'apparent': '{cols.pka_app}'")
         checks.append(False)
 
-    # Check plotting function for pKa_app notation
     plot_doc = plot_statistical_summary.__doc__
     if "pKa" in plot_doc or "apparent" in plot_doc.lower():
         print("  ✓ Plotting docs reference apparent pKa")
@@ -272,7 +264,6 @@ def check_no_silent_nans():
     """Check 9: No silent NaN success paths."""
     print("CHECK 9: No Silent NaN Success Paths")
 
-    # Check that invalid inputs raise errors, not return NaN
     veq = 25.0
 
     step_df_empty = pd.DataFrame(
