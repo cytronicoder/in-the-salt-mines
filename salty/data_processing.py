@@ -1,26 +1,14 @@
-"""Prepare Logger Pro titration exports for two-stage pKa_app analysis.
-
-This module converts raw, time-resolved titration measurements into the
-step-wise equilibrium format required by the two-stage apparent pKa protocol.
-It enforces explicit volume-based data handling and provides deterministic,
-traceable aggregation rules for chemically meaningful processing.
-
-The workflow is:
-    1) Load the CSV export into a DataFrame.
-    2) Split multi-run exports into individual runs with explicit volume axes.
-    3) Aggregate each run into equilibrium pH values per volume step.
-
-These utilities are strictly data preparation tools. They do not perform
-chemistry, regression, or plotting, and they raise explicit exceptions when
-required experimental metadata are missing.
-"""
+"""Prepare Logger Pro titration exports for two-stage analysis."""
 
 from __future__ import annotations
 
 from typing import Dict, Optional
 
+import logging
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_VOLUME_BIN: Optional[float] = None
@@ -155,6 +143,14 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
 
         if has_volume:
             tidy = run_df.dropna(subset=["pH", "Volume (cm³)"]).reset_index(drop=True)
+            if tidy.empty:
+                n_vol = int(run_df["Volume (cm³)"].notna().sum())
+                logger.warning(
+                    "Run '%s' contains a Volume (cm³) axis but no paired pH readings; skipping (%d volume entries).",
+                    prefix,
+                    n_vol,
+                )
+                continue
             runs[prefix] = {"df": tidy, "x_col": "Volume (cm³)"}
             continue
 

@@ -1,29 +1,4 @@
-"""Orchestrate two-stage pKa_app analysis for weak acid titration data.
-
-This module coordinates the full analysis pipeline for weak acid–strong base
-titrations conducted under varying ionic strength. It implements the two-stage
-apparent pKa (pKa_app) extraction protocol and enforces explicit, traceable data
-flow from raw measurements to summary statistics and plotting inputs.
-
-Scientific context:
-    The Henderson–Hasselbalch relationship is treated as an operational model
-    for concentration data. The extracted pKa values are apparent pKa_app
-    values influenced by ionic strength through activity coefficients; they
-    are therefore comparative rather than thermodynamic constants.
-
-Methodological summary:
-    Stage 1 (coarse pKa_app estimate): identify V_eq from the derivative peak
-    and read the interpolated pH at V_eq/2.
-
-    Stage 2 (refined pKa_app regression): restrict data to the chemically
-    defined buffer region (|pH − pKa_app,initial| ≤ 1) and fit the
-    Henderson–Hasselbalch model to obtain pKa_app with diagnostics.
-
-Uncertainty philosophy:
-    All uncertainties are reported as systematic, worst-case bounds derived
-    from instrument limits and explicit propagation rules rather than from
-    statistical standard deviations.
-"""
+"""Orchestrate two-stage analysis for weak acid titration data."""
 
 from __future__ import annotations
 
@@ -366,11 +341,9 @@ def detect_equivalence_point(
     else:
         peak_idx = int(d.idxmax())
 
-        # CHECK FOR MULTIPLE COMPARABLE MAXIMA
         d_vals = d.dropna()
         if len(d_vals) > 0:
             max_deriv = float(d_vals.max())
-            # Count peaks within 10% of maximum
             threshold = 0.9 * max_deriv
             n_comparable = int(np.sum(d_vals >= threshold))
             if n_comparable > 1:
@@ -386,11 +359,9 @@ def detect_equivalence_point(
         )
         eq_x_step = float(df.loc[peak_idx, "Volume (cm³)"])
 
-        # VERIFY V_eq LIES WITHIN EXPECTED BOUNDS
         v_min, v_max = float(np.nanmin(volumes)), float(np.nanmax(volumes))
         v_range = v_max - v_min
         if v_range > 0:
-            # V_eq should not be in outermost 5% of volume range
             if eq_x_step < (v_min + 0.05 * v_range) or eq_x_step > (
                 v_max - 0.05 * v_range
             ):
@@ -595,8 +566,8 @@ def analyze_titration(
 
     Stage 1 determines the equivalence volume from ``d(pH)/dV`` and reads the
     pH at half-equivalence to obtain a coarse apparent pKa estimate. Stage 2
-    applies Henderson–Hasselbalch regression within the chemically defined
-    buffer region (|pH − pKa_app,initial| ≤ 1) to refine pKa_app.
+    applies Henderson-Hasselbalch regression within the chemically defined
+    buffer region (|pH - pKa_app,initial| ≤ 1) to refine pKa_app.
 
     Args:
         df: Raw titration data with ``Volume (cm³)`` and ``pH`` columns.
@@ -606,10 +577,10 @@ def analyze_titration(
         ph_sys: Systematic pH meter uncertainty.
         uncertainty_method: Uncertainty combination rule (``"worst_case"`` or
             ``"quadrature"``).
-        smooth_for_derivative: Whether to apply Savitzky–Golay smoothing before
+        smooth_for_derivative: Whether to apply Savitzky-Golay smoothing before
             computing the derivative.
-        savgol_window: Window length for Savitzky–Golay smoothing.
-        polyorder: Polynomial order for Savitzky–Golay smoothing.
+        savgol_window: Window length for Savitzky-Golay smoothing.
+        polyorder: Polynomial order for Savitzky-Golay smoothing.
 
     Returns:
         A dictionary containing pKa_app, V_eq, uncertainties, and diagnostic
@@ -733,9 +704,16 @@ def process_all_files(file_list):
             x_col = run_info["x_col"]
 
             if "Volume (cm³)" not in run_df.columns or len(run_df) < 10:
-                raise ValueError(
-                    f"Run '{run_name}' lacks sufficient volume data for analysis."
+                import logging
+
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Skipping run '%s' in file '%s': contains only %d paired pH/volume rows (need >= 10).",
+                    run_name,
+                    os.path.basename(filepath),
+                    len(run_df),
                 )
+                continue
 
             analysis = analyze_titration(
                 run_df, f"{nacl_conc}M - {run_name}", x_col=x_col
@@ -808,7 +786,7 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
 
     The statistical summary reports the mean pKa_app for each NaCl
     concentration and expresses uncertainty as a systematic half-range
-    (max − min)/2 across trials. This is a worst-case estimate and is not a
+    (max - min)/2 across trials. This is a worst-case estimate and is not a
     statistical standard deviation.
 
     Args:
@@ -899,7 +877,6 @@ def build_summary_plot_data(
             f"stats_df is missing required columns. Expected: {required_cols}, missing: {missing}."
         )
 
-    # Validate results_df columns
     required_results_cols = [cols.nacl, cols.pka_app]
     missing_results = [c for c in required_results_cols if c not in results_df.columns]
     if missing_results:
