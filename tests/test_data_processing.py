@@ -10,7 +10,7 @@ def test_extract_runs_skips_volume_only_run(caplog):
 
     assert "Run 2" not in runs
     assert any(
-        "contains a Volume (cm³) axis but no paired pH readings" in rec.message
+        "contains a Volume (cm^3) axis but no paired pH readings" in rec.message
         for rec in caplog.records
     )
 

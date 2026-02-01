@@ -20,7 +20,7 @@ def test_hh_regression_slope_close_to_one():
     volumes = ratios * veq / (1.0 + ratios)
     pH = pka_app + log_ratios
 
-    step_df = pd.DataFrame({"Volume (cm³)": volumes, "pH_step": pH})
+    step_df = pd.DataFrame({"Volume (cm^3)": volumes, "pH_step": pH})
     fit = fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_app)
     assert abs(fit["slope_reg"] - 1.0) < 0.05
 
@@ -38,6 +38,6 @@ def test_invalid_buffer_region_raises():
     volumes = ratios * veq / (1.0 + ratios)
     pH = np.full_like(volumes, 8.0)
 
-    step_df = pd.DataFrame({"Volume (cm³)": volumes, "pH_step": pH})
+    step_df = pd.DataFrame({"Volume (cm^3)": volumes, "pH_step": pH})
     with pytest.raises(ValueError):
         fit_henderson_hasselbalch(step_df, veq, pka_app_guess=pka_app)

@@ -1,4 +1,16 @@
-"""Systematic uncertainty propagation utilities for titration analysis."""
+"""Systematic uncertainty propagation utilities for titration analysis.
+
+    - Temperature: 26 ± 1°C (controlled)
+    - Ethanoic acid concentration: 0.10 mol dm^-3
+    - NaOH (titrant) concentration: 0.10 mol dm^-3
+    - Sample volume: 25.00 cm^3
+    - NaCl concentrations: 0.00, 0.20, 0.40, 0.60, 0.80, 1.00 mol dm^-3
+    - pH measurement: Vernier pH Sensor (measures H⁺ activity, not concentration)
+
+At higher ionic strength (μ), activity coefficients (γ) deviate from unity,
+affecting the apparent pKa (pKa_app). The experimentally measured pH at the
+half-equivalence point reflects pKa_app rather than the thermodynamic pKa.
+"""
 
 from __future__ import annotations
 
@@ -8,14 +20,21 @@ from typing import Dict, Mapping, Optional, Tuple
 
 import numpy as np
 
+STANDARD_TEMP_C: float = 26.0  # Standard temperature (°C)
+TEMP_TOLERANCE_C: float = 1.0  # Temperature control tolerance (°C)
+ACID_CONCENTRATION_M: float = 0.10  # Ethanoic acid concentration (mol dm^-3)
+BASE_CONCENTRATION_M: float = 0.10  # NaOH titrant concentration (mol dm^-3)
+SAMPLE_VOLUME_CM3: float = 25.00  # Initial acid sample volume (cm^3)
+NACL_CONCENTRATIONS_M: list[float] = [0.00, 0.20, 0.40, 0.60, 0.80, 1.00]
 _EQUIPMENT_UNCERTAINTIES: Dict[str, Tuple[float, str]] = {
-    "25.0 cm3 pipette": (0.06, "abs"),
-    "50.0 cm3 burette": (0.05, "abs"),
-    "250 cm3 beaker": (5.0, "pct"),
-    "100 cm3 volumetric flask": (0.10, "abs"),
-    "Vernier pH Sensor PH-BTA": (0.2, "abs"),
-    "Digital thermometer": (0.1, "abs"),
-    "Analytical balance": (0.01, "abs"),
+    "25.0 cm3 pipette": (0.06, "abs"),  # ±0.06 cm^3 at 20°C
+    "50.0 cm3 burette": (0.05, "abs"),  # ±0.05 cm^3 (total volume)
+    "burette reading": (0.02, "abs"),  # ±0.02 cm^3 (individual graduations)
+    "250 cm3 beaker": (5.0, "pct"),  # ±5% (graduations for estimation only)
+    "100 cm3 volumetric flask": (0.10, "abs"),  # ±0.10 cm^3 at 20°C
+    "Vernier pH Sensor": (0.3, "abs"),  # ±0.3 pH units (measures activity)
+    "Digital thermometer": (0.1, "abs"),  # ±0.1°C
+    "Analytical balance": (0.01, "abs"),  # ±0.01 g
 }
 
 
@@ -321,25 +340,59 @@ def power(
 def concentration_uncertainty(concentration: float) -> float:
     """Compute systematic uncertainty for NaCl concentration preparation.
 
+    NaCl acts as an ionic strength modifier in this investigation. Each NaCl
+    formula unit dissociates into Na⁺ and Cl⁻, so ionic strength μ is:
+
+        μ = 0.5 Σ c_i z_i^2 ≈ [NaCl] (for 1:1 electrolyte)
+
+    Higher ionic strength increases electrostatic shielding, causing activity
+    coefficients (γ) to deviate from unity and shifting the apparent pKa.
+
+    Preparation method (from IA procedure):
+        1. Weigh solid NaCl to ±0.01 g using analytical balance
+        2. Transfer quantitatively to 100.0 cm^3 volumetric flask (±0.10 cm^3)
+        3. Add ~40 cm^3 distilled water, swirl to dissolve
+        4. Add 10.00 cm^3 of 1.00 M CH₃COOH stock using volumetric pipette
+        5. Dilute to mark with distilled water
+
     Args:
-        concentration: NaCl concentration in mol dm⁻³ (M).
+        concentration: NaCl concentration in mol dm^-3 (M).
+            Valid range: 0.00-1.00 M as per experimental design.
 
     Returns:
-        The absolute systematic uncertainty in the concentration, accounting
-        for balance and volumetric flask limits.
+        The absolute systematic uncertainty in the NaCl concentration (M),
+        propagated from analytical balance (±0.01 g) and volumetric flask
+        (±0.10 cm^3) uncertainties using worst-case combination.
+
+    Note:
+        For 0.00 M (no NaCl added), returns 0.0 by definition.
     """
     if concentration == 0.0 or not math.isfinite(concentration):
         return 0.0
 
-    mw = 58.44
-    volume = 0.1
-    mass = concentration * volume * mw
+    # NaCl molar mass: 58.44 g mol^-1
+    mw_nacl = 58.44
+    # Preparation volume: 100.0 cm^3 = 0.100 dm^3
+    volume_dm3 = 0.1
+    # Required mass of NaCl for target concentration
+    mass = concentration * volume_dm3 * mw_nacl
 
-    delta_mass = 0.01
-    delta_volume = 0.0001
+    # Uncertainty contributions from IA equipment table
+    delta_mass = 0.01  # Analytical balance: ±0.01 g
+    delta_volume = 0.0001  # 100 cm^3 volumetric flask: ±0.10 cm^3 = ±0.0001 dm^3
 
+    # Check if mass is too small for reliable preparation
+    # When mass < delta_mass, relative uncertainty > 100% (physically unrealistic)
+    if mass < delta_mass:
+        # For very low concentrations, the preparation method uncertainty
+        # dominates. Use worst-case: uncertainty equals the target concentration.
+        return float(concentration)
+
+    # Relative uncertainties
     rel_unc_m = delta_mass / mass
-    rel_unc_v = delta_volume / volume
+    rel_unc_v = delta_volume / volume_dm3
+    # Worst-case combination: c = m/(M·V) → Δc/c = Δm/m + ΔV/V
     rel_unc_c = combine_uncertainties([rel_unc_m, rel_unc_v], method="worst_case")
+    # Round to appropriate significant figures per IB conventions
     _, unc = round_value_to_uncertainty(concentration, float(concentration * rel_unc_c))
     return unc

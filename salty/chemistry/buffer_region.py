@@ -1,4 +1,20 @@
-"""Select chemically valid buffer regions for Henderson-Hasselbalch analysis."""
+"""Select chemically valid buffer regions for Henderson-Hasselbalch analysis.
+
+Experimental Context:
+    In this investigation, ethanoic acid (0.10 M) is titrated with NaOH (0.10 M)
+    in the presence of varying NaCl concentrations (0.00-1.00 M). The buffer region
+    is where the Henderson-Hasselbalch equation provides a chemically valid
+    description of the pH.
+
+Buffer Region Definition:
+    The operational criterion |pH - pKa_app| ≤ 1 corresponds to:
+        0.1 ≤ [A⁻]/[HA] ≤ 10
+
+    This range ensures that both the acid and conjugate base are present in
+    significant amounts, making the solution an effective buffer. Outside this
+    region, the log term dominates and small volume uncertainties cause large
+    pH changes, reducing the reliability of pKa_app determination.
+"""
 
 from __future__ import annotations
 
@@ -11,15 +27,21 @@ def select_buffer_region(pH: np.ndarray, pKa_app: float) -> np.ndarray:
     The buffer region is defined as ``|pH - pKa_app| ≤ 1``. This operational
     criterion corresponds to ``0.1 ≤ [A⁻]/[HA] ≤ 10`` and is where the
     Henderson-Hasselbalch approximation is considered chemically defensible.
-    The pKa_app argument must be the Stage 1 (half-equivalence) estimate used
-    to define the Stage 2 regression window.
+
+    In the context of this IA, the pKa_app argument must be the Stage 1
+    (half-equivalence) estimate, which is then used to define the Stage 2
+    regression window. Because pKa_app varies with [NaCl] due to ionic strength
+    effects on activity coefficients, each titration at a different [NaCl]
+    will have a different buffer region centered around its respective pKa_app.
 
     Args:
-        pH: Array of measured pH values.
-        pKa_app: Apparent pKa estimate from the half-equivalence point.
+        pH: Array of measured pH values from the titration.
+        pKa_app: Apparent pKa estimate from the half-equivalence point (Stage 1).
+            This is the pH measured when V = V_eq/2, where [CH₃COOH] ≈ [CH₃COO⁻].
 
     Returns:
         Boolean NumPy array indicating which points lie in the buffer region.
+        Points satisfying |pH - pKa_app| ≤ 1 are marked True.
 
     Raises:
         ValueError: If ``pKa_app`` is not finite.

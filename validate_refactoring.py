@@ -98,7 +98,7 @@ def check_slope_warning():
 
     step_df = pd.DataFrame(
         {
-            "Volume (cm³)": volumes,
+            "Volume (cm^3)": volumes,
             "pH_step": pH_bad,
         }
     )
@@ -146,7 +146,7 @@ def check_buffer_min_points():
 
     step_df = pd.DataFrame(
         {
-            "Volume (cm³)": [10.0, 12.0],
+            "Volume (cm^3)": [10.0, 12.0],
             "pH_step": [4.9, 5.1],
         }
     )
@@ -263,7 +263,7 @@ def check_no_silent_nans():
 
     step_df_empty = pd.DataFrame(
         {
-            "Volume (cm³)": [],
+            "Volume (cm^3)": [],
             "pH_step": [],
         }
     )

@@ -14,7 +14,11 @@ from salty.analysis import (
     process_all_files,
 )
 from salty.output import save_data_to_csv
-from salty.plotting import plot_statistical_summary, plot_titration_curves
+from salty.plotting import (
+    generate_all_qc_plots,
+    plot_statistical_summary,
+    plot_titration_curves,
+)
 
 
 def _configure_logging():
@@ -116,6 +120,15 @@ def main():
         logging.info(
             "Generated %d individual titration curve figures in each folder",
             len(titration_plot_paths_with),
+        )
+
+        # Generate quality control and validation plots
+        qc_dir = os.path.join(output_dir, "qc")
+        os.makedirs(qc_dir, exist_ok=True)
+        logging.info("Generating QC and validation plots for method assessment...")
+        qc_plot_paths = generate_all_qc_plots(results, results_df, qc_dir)
+        logging.info(
+            "Generated %d QC/validation plots in %s", len(qc_plot_paths), qc_dir
         )
 
         step_start = time.time()

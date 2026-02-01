@@ -1,4 +1,35 @@
-"""Orchestrate two-stage analysis for weak acid titration data."""
+"""Orchestrate two-stage analysis for weak acid titration data.
+
+This module implements the complete analysis pipeline for the IA investigation:
+'How NaCl Concentration Affects the Half-Equivalence pH in an Ethanoic Acid Titration'
+
+Experimental Design:
+    - Ethanoic acid (CH₃COOH): 0.10 mol dm⁻^3, 25.00 cm^3 sample
+    - Titrant (NaOH): 0.10 mol dm⁻^3
+    - NaCl concentrations: 0.00, 0.20, 0.40, 0.60, 0.80, 1.00 M
+    - Temperature: 26 ± 1°C
+    - pH measurement: Vernier pH Sensor (±0.3 pH units)
+    - Three replicate titrations per [NaCl] condition
+
+Analysis Strategy (Two-Stage):
+    Stage 1: Coarse pKa_app estimation
+        - Locate equivalence point (V_eq) from maximum dpH/dV
+        - Calculate half-equivalence volume: V_half = V_eq / 2
+        - Interpolate pH at V_half to obtain pKa_app (first estimate)
+
+    Stage 2: Refined Henderson-Hasselbalch regression
+        - Select buffer region: |pH - pKa_app| ≤ 1
+        - Fit pH = m·log₁₀(V/(V_eq - V)) + b within buffer region
+        - Extract refined pKa_app as intercept (b)
+        - Slope (m) should be ≈1.0; deviations indicate non-ideality
+
+Theoretical Context:
+    At higher [NaCl], ionic strength (μ) increases, causing activity coefficients
+    to deviate from unity. Since pH probes measure H⁺ activity rather than
+    concentration, the measured pH reflects an apparent pKa (pKa_app) that varies
+    with ionic strength. This investigation examines how pKa_app changes as a
+    function of [NaCl].
+"""
 
 from __future__ import annotations
 
@@ -30,9 +61,10 @@ if HAVE_SAVGOL:
 else:
     savgol_filter = None
 
-
-DEFAULT_BURETTE_UNC = 0.05
-DEFAULT_PH_METER_SYS = 0.00
+# Default uncertainties from IA equipment specifications
+DEFAULT_BURETTE_UNC = 0.05  # 50.0 cm^3 burette: ±0.05 cm^3 (total volume)
+DEFAULT_BURETTE_READING_UNC = 0.02  # Individual burette graduations: ±0.02 cm^3
+DEFAULT_PH_METER_SYS = 0.3  # Vernier pH Sensor: ±0.3 pH units (measures activity)
 
 
 def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -72,7 +104,7 @@ def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> D
     because it preserves monotonicity and avoids overshoot in sigmoidal data.
 
     Args:
-        step_df: DataFrame containing ``Volume (cm³)`` and ``pH_step`` columns.
+        step_df: DataFrame containing ``Volume (cm^3)`` and ``pH_step`` columns.
         method: Interpolation method (``"pchip"`` or ``"linear"``). When
             ``None``, PCHIP is selected if SciPy is available.
 
@@ -85,7 +117,7 @@ def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> D
     """
     if (
         step_df.empty
-        or "Volume (cm³)" not in step_df.columns
+        or "Volume (cm^3)" not in step_df.columns
         or "pH_step" not in step_df.columns
     ):
         return {
@@ -93,7 +125,7 @@ def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> D
             "func": lambda x: np.full_like(np.asarray(x, dtype=float), np.nan),
         }
 
-    x = step_df["Volume (cm³)"].to_numpy(dtype=float)
+    x = step_df["Volume (cm^3)"].to_numpy(dtype=float)
     y = step_df["pH_step"].to_numpy(dtype=float)
     x, y = _prepare_xy(x, y)
 
@@ -154,14 +186,14 @@ def generate_dense_curve(interpolator: Dict, n_points: int = 1200) -> pd.DataFra
         n_points: Number of points used to sample the interpolation domain.
 
     Returns:
-        A DataFrame with ``Volume (cm³)`` and ``pH_interp`` columns. Returns an
+        A DataFrame with ``Volume (cm^3)`` and ``pH_interp`` columns. Returns an
         empty DataFrame if interpolation bounds are unavailable.
     """
     if "x_min" not in interpolator or "x_max" not in interpolator:
-        return pd.DataFrame(columns=["Volume (cm³)", "pH_interp"])
+        return pd.DataFrame(columns=["Volume (cm^3)", "pH_interp"])
     x_dense = np.linspace(interpolator["x_min"], interpolator["x_max"], n_points)
     y_dense = interpolator["func"](x_dense)
-    return pd.DataFrame({"Volume (cm³)": x_dense, "pH_interp": y_dense})
+    return pd.DataFrame({"Volume (cm^3)": x_dense, "pH_interp": y_dense})
 
 
 def _smooth_ph_for_derivative(
@@ -171,7 +203,7 @@ def _smooth_ph_for_derivative(
         return step_df
 
     df = step_df.copy()
-    v = pd.to_numeric(df["Volume (cm³)"], errors="coerce").to_numpy(dtype=float)
+    v = pd.to_numeric(df["Volume (cm^3)"], errors="coerce").to_numpy(dtype=float)
     p = pd.to_numeric(df["pH_step"], errors="coerce").to_numpy(dtype=float)
     mask = np.isfinite(v) & np.isfinite(p)
 
@@ -216,7 +248,7 @@ def _ensure_derivative(step_df: pd.DataFrame, use_smooth: bool = True) -> pd.Dat
     if "dpH/dx" in df.columns and df["dpH/dx"].notna().any():
         return df
 
-    v = pd.to_numeric(df["Volume (cm³)"], errors="coerce").to_numpy(dtype=float)
+    v = pd.to_numeric(df["Volume (cm^3)"], errors="coerce").to_numpy(dtype=float)
     col = "pH_smooth" if (use_smooth and "pH_smooth" in df.columns) else "pH_step"
     p = pd.to_numeric(df[col], errors="coerce").to_numpy(dtype=float)
 
@@ -293,24 +325,36 @@ def detect_equivalence_point(
 ) -> Dict:
     """Detect the equivalence point using derivative maxima and QC checks.
 
-    The equivalence point is estimated from the maximum of ``d(pH)/dV`` in the
-    step-aggregated data. Additional checks enforce chemical plausibility,
-    including edge proximity, post-equivalence coverage, and multiple-peak
-    warnings.
+    The equivalence point occurs when the moles of NaOH added equal the initial
+    moles of ethanoic acid. For 0.10 M acid (25.00 cm^3) titrated with 0.10 M NaOH,
+    the expected equivalence volume is ~25 cm^3.
+
+    Detection strategy:
+        1. Compute dpH/dV from step-aggregated data (numerical gradient)
+        2. Locate the maximum of dpH/dV (steepest pH rise)
+        3. Apply QC checks: edge proximity, post-equivalence coverage, pH jump
+        4. If QC passes, record V_eq and pH_eq
+
+    The equivalence point is used to calculate the half-equivalence volume:
+        V_half = V_eq / 2
+
+    At V_half, [CH₃COOH] ≈ [CH₃COO⁻], so pH ≈ pKa_app (Stage 1 estimate).
 
     Args:
-        step_df: Step-aggregated DataFrame containing ``Volume (cm³)`` and
-            ``pH_step`` columns.
+        step_df: Step-aggregated DataFrame containing ``Volume (cm^3)`` and
+            ``pH_step`` columns from Logger Pro exports.
         interpolator: Optional interpolation dictionary from
             ``build_ph_interpolator``. When provided, a derivative of the
             interpolator is used for peak detection.
         edge_buffer: Minimum number of points away from each data edge for
-            a valid equivalence point.
-        min_post_points: Minimum number of points required after the peak.
-        gate_on_qc: Whether to discard the peak if QC checks fail.
+            a valid equivalence point. Default: 2.
+        min_post_points: Minimum number of points required after the peak
+            to ensure adequate post-equivalence coverage. Default: 3.
+        gate_on_qc: Whether to discard the peak if QC checks fail. If True,
+            returns NaN for failed QC; if False, returns the peak regardless.
 
     Returns:
-        A dictionary with equivalence volume, pH at equivalence, QC status,
+        A dictionary with equivalence volume (cm^3), pH at equivalence, QC status,
         and diagnostic metadata. If no valid equivalence point is found, the
         returned values are NaN and QC is marked as failed.
     """
@@ -326,7 +370,7 @@ def detect_equivalence_point(
 
     df = _ensure_derivative(step_df, use_smooth=True)
 
-    volumes = pd.to_numeric(df["Volume (cm³)"], errors="coerce").to_numpy(dtype=float)
+    volumes = pd.to_numeric(df["Volume (cm^3)"], errors="coerce").to_numpy(dtype=float)
     deriv_source = "step_gradient"
     d = pd.to_numeric(df["dpH/dx"], errors="coerce")
     if interpolator and "deriv_func" in interpolator:
@@ -356,7 +400,7 @@ def detect_equivalence_point(
         step_ok, step_reason, qc_metrics = _qc_equivalence(
             df, peak_idx, edge_buffer=edge_buffer, min_post_points=min_post_points
         )
-        eq_x_step = float(df.loc[peak_idx, "Volume (cm³)"])
+        eq_x_step = float(df.loc[peak_idx, "Volume (cm^3)"])
 
         v_min, v_max = float(np.nanmin(volumes)), float(np.nanmax(volumes))
         v_range = v_max - v_min
@@ -420,7 +464,7 @@ def detect_equivalence_point(
             if not step_df.empty:
                 nearest_idx = int(
                     np.nanargmin(
-                        np.abs(step_df["Volume (cm³)"].to_numpy(dtype=float) - eq_x)
+                        np.abs(step_df["Volume (cm^3)"].to_numpy(dtype=float) - eq_x)
                     )
                 )
                 ok2, reason2, qc2 = _qc_equivalence(
@@ -456,10 +500,10 @@ def _veq_uncertainty(
     burette_unc: float = DEFAULT_BURETTE_UNC,
     method: str = "worst_case",
 ) -> float:
-    if step_df.empty or "Volume (cm³)" not in step_df.columns:
+    if step_df.empty or "Volume (cm^3)" not in step_df.columns:
         return float(burette_delivered_uncertainty(burette_unc))
 
-    volumes = pd.to_numeric(step_df["Volume (cm³)"], errors="coerce").to_numpy(
+    volumes = pd.to_numeric(step_df["Volume (cm^3)"], errors="coerce").to_numpy(
         dtype=float
     )
     volumes = volumes[np.isfinite(volumes)]
@@ -493,8 +537,8 @@ def _pka_app_unc_from_buffer_fit(
 
     Args:
         step_df: Aggregated volume-step data.
-        veq: Equivalence volume in cm³.
-        veq_unc: Systematic uncertainty in V_eq in cm³.
+        veq: Equivalence volume in cm^3.
+        veq_unc: Systematic uncertainty in V_eq in cm^3.
         buffer_fit: Output dictionary from ``fit_henderson_hasselbalch``.
         ph_sys: Systematic pH meter uncertainty.
         method: Uncertainty combination method (``"worst_case"`` or
@@ -551,7 +595,7 @@ def _pka_app_unc_from_buffer_fit(
 def analyze_titration(
     df: pd.DataFrame,
     run_name: str,
-    x_col: str = "Volume (cm³)",
+    x_col: str = "Volume (cm^3)",
     burette_unc: float = DEFAULT_BURETTE_UNC,
     ph_sys: float = DEFAULT_PH_METER_SYS,
     uncertainty_method: str = "worst_case",
@@ -567,10 +611,10 @@ def analyze_titration(
     buffer region (|pH - pKa_app,initial| ≤ 1) to refine pKa_app.
 
     Args:
-        df: Raw titration data with ``Volume (cm³)`` and ``pH`` columns.
+        df: Raw titration data with ``Volume (cm^3)`` and ``pH`` columns.
         run_name: Human-readable identifier for the experimental run.
         x_col: Column name for the independent variable.
-        burette_unc: Systematic burette reading uncertainty in cm³.
+        burette_unc: Systematic burette reading uncertainty in cm^3.
         ph_sys: Systematic pH meter uncertainty.
         uncertainty_method: Uncertainty combination rule (``"worst_case"`` or
             ``"quadrature"``).
@@ -698,7 +742,7 @@ def process_all_files(file_list):
             run_df = run_info["df"]
             x_col = run_info["x_col"]
 
-            if "Volume (cm³)" not in run_df.columns or len(run_df) < 10:
+            if "Volume (cm^3)" not in run_df.columns or len(run_df) < 10:
                 import logging
 
                 logger = logging.getLogger(__name__)

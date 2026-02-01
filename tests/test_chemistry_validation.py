@@ -28,7 +28,7 @@ class TestChemicalInvariants:
 
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": volumes,
+                "Volume (cm^3)": volumes,
                 "pH_step": pH_ideal,
             }
         )
@@ -63,7 +63,7 @@ class TestChemicalInvariants:
 
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": volumes,
+                "Volume (cm^3)": volumes,
                 "pH_step": pH_non_ideal,
             }
         )
@@ -110,7 +110,7 @@ class TestFailureModes:
 
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": [10.0, 12.0],
+                "Volume (cm^3)": [10.0, 12.0],
                 "pH_step": [4.9, 5.1],
             }
         )
@@ -129,7 +129,7 @@ class TestFailureModes:
         """
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": [5.0, 10.0, 15.0, 20.0],
+                "Volume (cm^3)": [5.0, 10.0, 15.0, 20.0],
                 "pH_step": [4.5, 4.8, 5.2, 5.5],
             }
         )
@@ -154,7 +154,7 @@ class TestFailureModes:
         """
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": [5.0, 10.0, 15.0, 20.0],
+                "Volume (cm^3)": [5.0, 10.0, 15.0, 20.0],
                 "pH_step": [4.5, 4.8, 5.2, 5.5],
             }
         )
@@ -193,7 +193,7 @@ class TestInterpretationMetadata:
 
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": volumes,
+                "Volume (cm^3)": volumes,
                 "pH_step": pH_ideal,
             }
         )
@@ -240,7 +240,7 @@ class TestTwoStageProtocol:
 
         step_df = pd.DataFrame(
             {
-                "Volume (cm³)": volumes,
+                "Volume (cm^3)": volumes,
                 "pH_step": pH_values,
             }
         )

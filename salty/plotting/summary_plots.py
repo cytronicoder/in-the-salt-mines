@@ -157,7 +157,7 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
         r"Effect of NaCl concentration on apparent $pK_{a,\mathrm{app}}$",
         fontweight="bold",
     )
-    ax.set_xlabel(r"NaCl concentration / mol dm$^{-3}$")
+    ax.set_xlabel(r"$[\mathrm{NaCl}]$ / $\mathrm{mol\,dm^{-3}}$")
     ax.set_ylabel(r"$pK_{a,\mathrm{app}}$")
 
     ax.xaxis.set_major_formatter(FormatStrFormatter("%.2f"))

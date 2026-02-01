@@ -82,7 +82,7 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
     """Extract per-run titration data using explicit volume axes.
 
     Logger Pro exports multiple runs in a single CSV with columns named
-    ``Run 1: Volume (cm³)``, ``Run 1: pH``, and analogous columns for each run.
+    ``Run 1: Volume (cm^3)``, ``Run 1: pH``, and analogous columns for each run.
     This function returns a tidy DataFrame per run and enforces the presence
     of volume data for downstream chemical analysis.
 
@@ -91,8 +91,8 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
 
     Returns:
         A mapping from run identifiers to dictionaries containing:
-            - ``df``: DataFrame with ``Volume (cm³)`` and ``pH`` columns.
-            - ``x_col``: The explicit x-axis column name (always ``Volume (cm³)``).
+            - ``df``: DataFrame with ``Volume (cm^3)`` and ``pH`` columns.
+            - ``x_col``: The explicit x-axis column name (always ``Volume (cm^3)``).
 
     Raises:
         ValueError: If a run contains pH data without a valid volume axis.
@@ -114,7 +114,7 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
         ]
 
         rename_map = {
-            "Volume of NaOH Added (cm³)": "Volume (cm³)",
+            "Volume of NaOH Added (cm^3)": "Volume (cm^3)",
             "Time (min)": "Time (min)",
             "pH": "pH",
             "Temperature (°C)": "Temperature (°C)",
@@ -127,36 +127,36 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
 
         run_df["pH"] = pd.to_numeric(run_df["pH"], errors="coerce")
 
-        if "Volume (cm³)" in run_df.columns:
-            run_df["Volume (cm³)"] = pd.to_numeric(
-                run_df["Volume (cm³)"], errors="coerce"
+        if "Volume (cm^3)" in run_df.columns:
+            run_df["Volume (cm^3)"] = pd.to_numeric(
+                run_df["Volume (cm^3)"], errors="coerce"
             ).ffill()
 
         if "Time (min)" in run_df.columns:
             run_df["Time (min)"] = pd.to_numeric(run_df["Time (min)"], errors="coerce")
 
         has_volume = (
-            "Volume (cm³)" in run_df.columns
-            and run_df["Volume (cm³)"].notna().any()
-            and run_df["Volume (cm³)"].nunique(dropna=True) > 1
+            "Volume (cm^3)" in run_df.columns
+            and run_df["Volume (cm^3)"].notna().any()
+            and run_df["Volume (cm^3)"].nunique(dropna=True) > 1
         )
 
         if has_volume:
-            tidy = run_df.dropna(subset=["pH", "Volume (cm³)"]).reset_index(drop=True)
+            tidy = run_df.dropna(subset=["pH", "Volume (cm^3)"]).reset_index(drop=True)
             if tidy.empty:
-                n_vol = int(run_df["Volume (cm³)"].notna().sum())
+                n_vol = int(run_df["Volume (cm^3)"].notna().sum())
                 msg = (
-                    "Run '%s' contains a Volume (cm³) axis but no paired "
+                    "Run '%s' contains a Volume (cm^3) axis but no paired "
                     "pH readings; skipping (%d volume entries)."
                 )
                 logger.warning(msg, prefix, n_vol)
                 continue
-            runs[prefix] = {"df": tidy, "x_col": "Volume (cm³)"}
+            runs[prefix] = {"df": tidy, "x_col": "Volume (cm^3)"}
             continue
 
         if run_df["pH"].notna().any():
             raise ValueError(
-                f"Run '{prefix}' contains pH data without a valid Volume (cm³) axis."
+                f"Run '{prefix}' contains pH data without a valid Volume (cm^3) axis."
             )
 
     return runs
@@ -164,7 +164,7 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
 
 def aggregate_volume_steps(
     df: pd.DataFrame,
-    volume_col: str = "Volume (cm³)",
+    volume_col: str = "Volume (cm^3)",
     ph_col: str = "pH",
     volume_bin: Optional[float] = DEFAULT_VOLUME_BIN,
     auto_bin_if_needed: bool = False,

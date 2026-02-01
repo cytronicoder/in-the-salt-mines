@@ -12,6 +12,6 @@ def test_process_all_files_skips_insufficient_runs(caplog):
     assert all("Run 2" not in r.get("run_name", "") for r in results)
     assert any(
         "Skipping run 'Run 2'" in rec.message
-        or "contains a Volume (cm³) axis but no paired pH readings" in rec.message
+        or "contains a Volume (cm^3) axis but no paired pH readings" in rec.message
         for rec in caplog.records
     )

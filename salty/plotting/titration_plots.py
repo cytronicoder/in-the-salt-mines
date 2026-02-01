@@ -98,14 +98,16 @@ def plot_titration_curves(
         dense_df: pd.DataFrame = res.get("dense_curve", pd.DataFrame())
 
         run_name = str(res.get("run_name", f"Run {i+1}"))
-        x_col = res.get("x_col", "Volume (cm³)")
-        is_volume = (x_col == "Volume (cm³)") or ("Volume" in x_col)
+        x_col = res.get("x_col", "Volume (cm^3)")
+        is_volume = (x_col == "Volume (cm^3)") or ("Volume" in x_col)
 
-        x_label = r"Volume of NaOH added / cm$^3$" if is_volume else r"Time / min"
+        x_label = (
+            r"Volume of NaOH added / $\mathrm{cm}^3$" if is_volume else r"Time / min"
+        )
         deriv_label = (
-            r"$\mathrm{d\,pH}/\mathrm{d}V$ / (pH cm$^{-3}$)"
+            r"$\mathrm{d}pH/\mathrm{d}V$ / (pH $\mathrm{cm}^{-3}$)"
             if is_volume
-            else r"$\mathrm{d\,pH}/\mathrm{d}t$ / (pH min$^{-1}$)"
+            else r"$\mathrm{d}pH/\mathrm{d}t$ / (pH $\mathrm{min}^{-1}$)"
         )
 
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(21, 6.8))
@@ -143,11 +145,11 @@ def plot_titration_curves(
                 label="Measurements",
             )
 
-        if not dense_df.empty and {"Volume (cm³)", "pH_interp"}.issubset(
+        if not dense_df.empty and {"Volume (cm^3)", "pH_interp"}.issubset(
             dense_df.columns
         ):
             x_smooth = pd.to_numeric(
-                dense_df["Volume (cm³)"], errors="coerce"
+                dense_df["Volume (cm^3)"], errors="coerce"
             ).to_numpy(dtype=float)
             y_smooth = pd.to_numeric(dense_df["pH_interp"], errors="coerce").to_numpy(
                 dtype=float
@@ -170,10 +172,10 @@ def plot_titration_curves(
         if (
             np.isfinite(veq)
             and not dense_df.empty
-            and {"Volume (cm³)", "pH_interp"}.issubset(dense_df.columns)
+            and {"Volume (cm^3)", "pH_interp"}.issubset(dense_df.columns)
         ):
             x_smooth = pd.to_numeric(
-                dense_df["Volume (cm³)"], errors="coerce"
+                dense_df["Volume (cm^3)"], errors="coerce"
             ).to_numpy(dtype=float)
             y_smooth = pd.to_numeric(dense_df["pH_interp"], errors="coerce").to_numpy(
                 dtype=float
@@ -214,7 +216,7 @@ def plot_titration_curves(
 
         ax1.set_title("Titration curve", fontweight="bold")
         ax1.set_xlabel(x_label)
-        ax1.set_ylabel("pH")
+        ax1.set_ylabel(r"$\mathrm{pH}$")
 
         ax1.yaxis.set_major_locator(MaxNLocator(nbins=8))
         ax1.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
@@ -231,8 +233,8 @@ def plot_titration_curves(
 
         if not step_df.empty and "dpH/dx" in step_df.columns:
             x_step = (
-                "Volume (cm³)"
-                if ("Volume (cm³)" in step_df.columns and is_volume)
+                "Volume (cm^3)"
+                if ("Volume (cm^3)" in step_df.columns and is_volume)
                 else x_col
             )
             if x_step in step_df.columns:
@@ -345,7 +347,7 @@ def plot_titration_curves(
 
         ax3.set_title("Henderson-Hasselbalch (apparent pK$_a$)", fontweight="bold")
         ax3.set_xlabel(r"$\log_{10}\!\left(\frac{V}{V_{eq}-V}\right)$")
-        ax3.set_ylabel("pH")
+        ax3.set_ylabel(r"$\mathrm{pH}$")
         ax3.yaxis.set_major_locator(MaxNLocator(nbins=7))
         ax3.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
         ax3.legend(loc="best")

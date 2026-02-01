@@ -15,18 +15,18 @@ def make_dummy_results():
     """Construct a minimal results payload for plotting tests."""
     step_df = pd.DataFrame(
         {
-            "Volume (cm³)": [0.0, 1.0, 2.0, 3.0],
+            "Volume (cm^3)": [0.0, 1.0, 2.0, 3.0],
             "pH_step": [3.0, 3.5, 4.5, 7.0],
             "pH_step_sd": [0.05, 0.05, 0.05, 0.05],
             "dpH/dx": [0.1, 0.3, 1.2, 0.5],
         }
     )
     dense_df = pd.DataFrame(
-        {"Volume (cm³)": np.linspace(0, 3, 50), "pH_interp": np.linspace(3, 7, 50)}
+        {"Volume (cm^3)": np.linspace(0, 3, 50), "pH_interp": np.linspace(3, 7, 50)}
     )
     res = {
         "data": pd.DataFrame(
-            {"Volume (cm³)": [0, 1, 2, 3], "pH": [3.0, 3.5, 4.5, 7.0]}
+            {"Volume (cm^3)": [0, 1, 2, 3], "pH": [3.0, 3.5, 4.5, 7.0]}
         ),
         "step_data": step_df,
         "dense_curve": dense_df,
