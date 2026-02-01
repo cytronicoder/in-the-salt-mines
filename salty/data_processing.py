@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Dict, Optional
 
 import numpy as np
@@ -12,6 +13,33 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_VOLUME_BIN: Optional[float] = None
+
+
+def _strip_uncertainty_from_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove uncertainty annotations from column headers.
+
+    Column headers may contain uncertainty information in parentheses,
+    e.g., 'Run 1: pH (±0.3 pH)'. This function strips that annotation
+    to restore the original column names expected by the processing pipeline.
+
+    Args:
+        df: DataFrame with potentially annotated column headers.
+
+    Returns:
+        DataFrame with cleaned column names.
+    """
+    cleaned_columns = {}
+    for col in df.columns:
+        # Remove uncertainty annotation pattern: (±X.XX units)
+        cleaned = re.sub(r"\s*\(±[^)]+\)\s*$", "", col).strip()
+        if cleaned != col:
+            cleaned_columns[col] = cleaned
+            logger.debug("Stripped uncertainty from column: '%s' -> '%s'", col, cleaned)
+
+    if cleaned_columns:
+        df = df.rename(columns=cleaned_columns)
+
+    return df
 
 
 def _round_to_resolution(x: pd.Series, res: Optional[float]) -> pd.Series:
@@ -97,6 +125,9 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
     Raises:
         ValueError: If a run contains pH data without a valid volume axis.
     """
+    # Strip uncertainty annotations from column headers
+    df = _strip_uncertainty_from_columns(df)
+
     runs: Dict[str, Dict] = {}
 
     prefixes = {
@@ -307,6 +338,10 @@ def aggregate_volume_steps(
 
 def load_titration_data(filepath: str) -> pd.DataFrame:
     """Load a Logger Pro CSV export into a pandas DataFrame.
+
+    Column headers may contain uncertainty annotations (e.g., '±0.3 pH').
+    These annotations are preserved at the loading stage and will be
+    stripped during extraction if present.
 
     Args:
         filepath: Path to the CSV file on disk.
