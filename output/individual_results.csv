@@ -2,18 +2,18 @@ Run,NaCl Concentration (M),Apparent pKa,pKa_app method,Uncertainty in Apparent p
 0.0M - Run 2,0.0,5.292587255155813,buffer_regression,0.3302904245160478,5.3,0.3,True,25.7,0.35,25.7,0.3,derivative_step,1.1113065477609547,0.9929386824608915,ms besant go brr brr- 0.0m nacl.csv
 0.0M - Run 1,0.0,5.3508558615097686,buffer_regression,0.33256170038538824,5.4,0.3,True,26.2,0.35,26.2,0.3,derivative_step,1.1260464460221178,0.9927939148003336,ms besant go brr brr- 0.0m nacl.csv
 0.0M - Run 1,0.0,5.335645395982637,buffer_regression,0.3297896940870744,5.3,0.3,True,24.7,0.35,24.7,0.3,derivative_step,1.0206055139435855,0.9941073689440554,ms besant go brr brr v2- 0.0m nacl.csv
-0.2M - Run 3,0.2,5.257312163441976,buffer_regression,0.3342187474769896,5.3,0.3,True,24.7,0.35,24.7,0.3,derivative_step,1.1381445282719695,0.9928988127641065,ms besant go brr brr v2- 0.2m nacl.csv
 0.2M - Run 2,0.2,5.260979263418078,buffer_regression,0.3334594768753657,5.3,0.3,True,24.5,0.35,24.5,0.3,derivative_step,1.11580826478925,0.9951340522924169,ms besant go brr brr v2- 0.2m nacl.csv
 0.2M - Run 1,0.2,5.234875056830319,buffer_regression,0.3333349715097844,5.2,0.3,True,24.7,0.35,24.7,0.3,derivative_step,1.1290040014501648,0.9933077169617949,ms besant go brr brr v2- 0.2m nacl.csv
-0.4M - Run 3,0.4,5.192474396882408,buffer_regression,0.34868773187424357,5.2,0.3,True,21.2,0.35,21.2,0.3,derivative_step,0.9293190806074424,0.968694363769635,ms besant go brr brr v2- 0.4m nacl.csv
+0.2M - Run 3,0.2,5.257312163441976,buffer_regression,0.3342187474769896,5.3,0.3,True,24.7,0.35,24.7,0.3,derivative_step,1.1381445282719695,0.9928988127641065,ms besant go brr brr v2- 0.2m nacl.csv
 0.4M - Run 2,0.4,5.233382952534101,buffer_regression,0.33832782130425004,5.2,0.3,True,25.7,0.35,25.7,0.3,derivative_step,1.2305211033590446,0.988737077763046,ms besant go brr brr v2- 0.4m nacl.csv
 0.4M - Run 1,0.4,5.199381300608209,buffer_regression,0.33848035344946364,5.2,0.3,True,25.2,0.35,25.2,0.3,derivative_step,1.1453199960910794,0.9868569223350208,ms besant go brr brr v2- 0.4m nacl.csv
-0.6M - Run 3,0.6,5.12647960363015,buffer_regression,0.3450104563134071,5.1,0.3,True,21.2,0.35,21.2,0.3,derivative_step,1.0677486393881372,0.9815272864114445,ms besant go brr brr v2- 0.6m nacl.csv
+0.4M - Run 3,0.4,5.192474396882408,buffer_regression,0.34868773187424357,5.2,0.3,True,21.2,0.35,21.2,0.3,derivative_step,0.9293190806074424,0.968694363769635,ms besant go brr brr v2- 0.4m nacl.csv
 0.6M - Run 2,0.6,5.117397360051872,buffer_regression,0.34397181461939047,5.1,0.3,True,21.2,0.35,21.2,0.3,derivative_step,1.0355397754315858,0.9834824472567482,ms besant go brr brr v2- 0.6m nacl.csv
 0.6M - Run 1,0.6,5.107895301557128,buffer_regression,0.3476717988519644,5.1,0.3,True,21.7,0.35,21.7,0.3,derivative_step,0.9690251475859025,0.9757309324285308,ms besant go brr brr v2- 0.6m nacl.csv
-0.8M - Run 3,0.8,5.129695260587833,buffer_regression,0.3333576683587294,5.1,0.3,True,25.0,0.35,25.0,0.3,derivative_step,1.1299720308416044,0.9926188042711658,ms besant go brr brr- 0.8m nacl.csv
+0.6M - Run 3,0.6,5.12647960363015,buffer_regression,0.3450104563134071,5.1,0.3,True,21.2,0.35,21.2,0.3,derivative_step,1.0677486393881372,0.9815272864114445,ms besant go brr brr v2- 0.6m nacl.csv
 0.8M - Run 2,0.8,5.092104215496808,buffer_regression,0.33276905484269237,5.1,0.3,True,24.7,0.35,24.7,0.3,derivative_step,1.1736737889305278,0.9953273171707065,ms besant go brr brr- 0.8m nacl.csv
 0.8M - Run 1,0.8,5.092104215496808,buffer_regression,0.33276905484269237,5.1,0.3,True,24.7,0.35,24.7,0.3,derivative_step,1.1736737889305278,0.9953273171707065,ms besant go brr brr- 0.8m nacl.csv
+0.8M - Run 3,0.8,5.129695260587833,buffer_regression,0.3333576683587294,5.1,0.3,True,25.0,0.35,25.0,0.3,derivative_step,1.1299720308416044,0.9926188042711658,ms besant go brr brr- 0.8m nacl.csv
 1.0M - Run 3,1.0,5.086973291307825,buffer_regression,0.3254632557465771,5.1,0.3,True,24.0,0.35,24.0,0.3,derivative_step,0.9187611879900504,0.9937987895513722,ms besant go brr - 1m nacl.csv
 1.0M - Run 2,1.0,5.007062887662026,buffer_regression,0.3509183319922988,5.0,0.4,True,22.5,0.35,22.5,0.3,derivative_step,0.8907798069065493,0.9482327408094526,ms besant go brr brr v2- 1.0m nacl.csv
 1.0M - Run 1,1.0,5.000631449155583,buffer_regression,0.35143749169277033,5.0,0.4,True,22.5,0.35,22.5,0.3,derivative_step,0.8546525122280019,0.9405107946779662,ms besant go brr brr v2- 1.0m nacl.csv
