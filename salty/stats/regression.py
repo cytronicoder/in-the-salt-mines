@@ -1,4 +1,10 @@
-"""Array-based regression utilities for titration analysis."""
+"""Provide regression utilities used in IA trend and fit diagnostics.
+
+This module supports:
+- run-level Henderson-Hasselbalch linear fits,
+- condition-level linear trend summaries, and
+- conservative slope-uncertainty bounds used in reporting plots.
+"""
 
 from __future__ import annotations
 
@@ -16,25 +22,32 @@ if HAVE_SCIPY:
 def linear_regression(
     x: np.ndarray, y: np.ndarray, min_points: int = 3
 ) -> Dict[str, float]:
-    """Fit a straight line using ordinary least squares.
-
-    The regression returns slope, intercept, coefficient of determination, and
-    standard-error estimates. These diagnostics quantify statistical scatter
-    within the provided arrays and are not a substitute for systematic
-    uncertainty propagation.
+    """Fit an ordinary least-squares straight line to finite data pairs.
 
     Args:
-        x: Independent-variable values.
-        y: Dependent-variable values.
-        min_points: Minimum number of finite data points required.
+        x (numpy.ndarray): Independent variable array (dimensionless or with
+            consistent units).
+        y (numpy.ndarray): Dependent variable array (for example, pH units).
+        min_points (int, optional): Minimum number of finite paired
+            observations required. Defaults to ``3``.
 
     Returns:
-        A dictionary containing slope (``m``), intercept (``b``), ``r2``,
-        standard errors, and an optional 95% confidence interval for the
-        intercept when SciPy is available.
+        dict[str, float]: Regression diagnostics with keys ``m`` (slope),
+        ``b`` (intercept), ``r2`` (coefficient of determination), ``se_m``,
+        ``se_b``, and ``ci95_b`` (95% half-width for intercept when available).
 
     Raises:
-        ValueError: If the dataset is too small or has insufficient variance.
+        ValueError: If there are insufficient valid points or insufficient x/y
+            variance.
+
+    Note:
+        ``r2`` and standard errors describe statistical scatter only and do not
+        include systematic instrument uncertainty.
+        IA correspondence: this regression is the computational core of the
+        Stage-2 buffer-region fit and grouped trend diagnostics.
+
+    References:
+        Ordinary least squares linear regression.
     """
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)
@@ -91,26 +104,32 @@ def slope_uncertainty_from_endpoints(
     xerr: np.ndarray,
     yerr: np.ndarray,
 ) -> Dict[str, float]:
-    """Compute a worst-case slope uncertainty using endpoint error boxes.
-
-    This method propagates systematic measurement uncertainties in the
-    first and last data points to estimate a conservative slope range.
-    It intentionally avoids statistical assumptions and should be interpreted
-    as a worst-case bound, not a standard deviation.
+    """Estimate worst-case slope uncertainty from endpoint error bounds.
 
     Args:
-        x: Independent-variable values.
-        y: Dependent-variable values.
-        xerr: Systematic uncertainty in ``x``.
-        yerr: Systematic uncertainty in ``y``.
+        x (numpy.ndarray): Independent-variable values.
+        y (numpy.ndarray): Dependent-variable values.
+        xerr (numpy.ndarray): Absolute systematic uncertainty for ``x`` in the
+            same units as ``x``.
+        yerr (numpy.ndarray): Absolute systematic uncertainty for ``y`` in the
+            same units as ``y``.
 
     Returns:
-        A dictionary containing the maximum and minimum slopes consistent with
-        the error bounds, plus the half-range slope uncertainty.
+        dict[str, float]: Dictionary with extreme compatible slopes
+        (``m_max``, ``m_min``), half-range uncertainty (``slope_unc``), and
+        endpoint bound coordinates used to compute those limits.
 
     Raises:
-        ValueError: If fewer than two finite points are provided or if the
-            endpoint configuration is invalid.
+        ValueError: If fewer than two finite points are available or if
+            endpoint bounds produce non-positive slope denominators.
+
+    Note:
+        This is a conservative geometric bound, not a probabilistic confidence
+        interval. IA correspondence: this method supports uncertainty-band
+        visualization for concentration-trend slopes.
+
+    References:
+        Worst-case endpoint bounding for slope uncertainty propagation.
     """
     x_arr = np.asarray(x, dtype=float)
     y_arr = np.asarray(y, dtype=float)

@@ -1,4 +1,8 @@
-"""Expose systematic uncertainty utilities through a flat namespace."""
+"""Expose uncertainty utilities through a stable top-level import path.
+
+This module preserves a simple IA-facing API so uncertainty helpers can be
+imported consistently from ``salty.uncertainty``.
+"""
 
 from .stats.uncertainty import (
     Quantity,

@@ -17,7 +17,7 @@ class TestIonicStrengthNaCl:
     def test_nacl_equals_concentration(self):
         """For NaCl (1:1 electrolyte), μ = [NaCl]."""
         # Test all experimental concentrations from IA
-        test_concentrations = [0.00, 0.20, 0.40, 0.60, 0.80, 1.00]
+        test_concentrations = [0.00, 0.20, 0.40, 0.60, 0.80]
         for conc in test_concentrations:
             mu = ionic_strength_nacl(conc)
             assert math.isclose(mu, conc, abs_tol=1e-9)
@@ -122,7 +122,6 @@ class TestExperimentalConditions:
             (0.40, 0.40),
             (0.60, 0.60),
             (0.80, 0.80),
-            (1.00, 1.00),
         ]
 
         for nacl_conc, expected_mu in expected_values:

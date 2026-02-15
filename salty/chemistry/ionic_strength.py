@@ -20,10 +20,14 @@ Background Theory:
 
 Experimental Context:
     - NaCl is added to 0.10 M ethanoic acid solutions
-    - NaCl concentrations: 0.00, 0.20, 0.40, 0.60, 0.80, 1.00 M
+    - NaCl concentrations: 0.00, 0.20, 0.40, 0.60, 0.80 M
     - NaCl does not participate in the acid-base reaction
     - Higher μ increases electrostatic shielding, affecting activity coefficients
     - This shifts the apparent pKa (pKa_app) measured at the half-equivalence point
+
+IA correspondence:
+    This module supplies the independent-variable chemistry interpretation step,
+    linking nominal NaCl concentration to ionic strength for trend analysis.
 """
 
 from __future__ import annotations
@@ -36,22 +40,21 @@ def ionic_strength_nacl(nacl_concentration: float) -> float:
         μ = [NaCl]
 
     Args:
-        nacl_concentration: NaCl concentration in mol dm⁻^3 (M).
-            Valid experimental range: 0.00-1.00 M.
+        nacl_concentration (float): NaCl concentration in mol dm^-3.
 
     Returns:
-        Ionic strength in mol dm⁻^3 (M), equal to the input concentration.
+        float: Ionic strength in mol dm^-3.
 
     Raises:
+        TypeError: If ``nacl_concentration`` is not numeric.
         ValueError: If concentration is negative or non-finite.
 
-    Examples:
-        >>> ionic_strength_nacl(0.20)
-        0.20
-        >>> ionic_strength_nacl(0.00)
-        0.0
-        >>> ionic_strength_nacl(1.00)
-        1.0
+    Note:
+        For NaCl (1:1 electrolyte), ionic strength equals concentration.
+        Failure mode: non-finite or negative concentration values are rejected.
+
+    References:
+        IUPAC ionic strength definition for strong 1:1 electrolytes.
     """
     if not isinstance(nacl_concentration, (int, float)):
         raise TypeError(
@@ -79,20 +82,22 @@ def ionic_strength_general(ion_concentrations: dict[str, tuple[float, int]]) -> 
         μ = 0.5 Σ c_i z_i^2
 
     Args:
-        ion_concentrations: Dictionary mapping ion names to (concentration, charge).
-            Example: {"Na+": (0.20, 1), "Cl-": (0.20, -1)}
+        ion_concentrations (dict[str, tuple[float, int]]): Mapping from ion
+            labels to ``(concentration_mol_dm3, charge)`` tuples.
 
     Returns:
-        Ionic strength in mol dm⁻^3 (M).
+        float: Ionic strength in mol dm^-3.
 
     Raises:
-        ValueError: If concentrations are negative or charges are zero.
+        ValueError: If any concentration is negative or any charge is zero.
 
-    Examples:
-        >>> ionic_strength_general({"Na+": (0.20, 1), "Cl-": (0.20, -1)})
-        0.20
-        >>> ionic_strength_general({"Ca2+": (0.10, 2), "Cl-": (0.20, -1)})
-        0.30
+    Note:
+        Each ion entry should represent dissolved ionic species with concentration in
+        mol dm^-3 and integer charge.
+        Failure mode: negative concentrations and zero-charge entries are rejected.
+
+    References:
+        IUPAC ionic strength definition: ``mu = 0.5 * sum(c_i * z_i^2)``.
     """
     if not ion_concentrations:
         return 0.0

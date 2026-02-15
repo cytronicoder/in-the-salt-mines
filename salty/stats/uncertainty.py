@@ -1,15 +1,8 @@
-"""Systematic uncertainty propagation utilities for titration analysis.
+"""Propagate and format uncertainty terms for IB-style titration reporting.
 
-    - Temperature: 26 ± 1°C (controlled)
-    - Ethanoic acid concentration: 0.10 mol dm^-3
-    - NaOH (titrant) concentration: 0.10 mol dm^-3
-    - Sample volume: 25.00 cm^3
-    - NaCl concentrations: 0.00, 0.20, 0.40, 0.60, 0.80, 1.00 mol dm^-3
-    - pH measurement: Vernier pH Sensor (measures H⁺ activity, not concentration)
-
-At higher ionic strength (μ), activity coefficients (γ) deviate from unity,
-affecting the apparent pKa (pKa_app). The experimentally measured pH at the
-half-equivalence point reflects pKa_app rather than the thermodynamic pKa.
+This module centralizes uncertainty constants, propagation rules, and value
+formatting helpers used when translating analytical outputs into IA reporting
+tables.
 """
 
 from __future__ import annotations
@@ -20,32 +13,47 @@ from typing import Dict, Mapping, Optional, Tuple
 
 import numpy as np
 
-STANDARD_TEMP_C: float = 26.0  # Standard temperature (°C)
-TEMP_TOLERANCE_C: float = 1.0  # Temperature control tolerance (°C)
-ACID_CONCENTRATION_M: float = 0.10  # Ethanoic acid concentration (mol dm^-3)
-BASE_CONCENTRATION_M: float = 0.10  # NaOH titrant concentration (mol dm^-3)
-SAMPLE_VOLUME_CM3: float = 25.00  # Initial acid sample volume (cm^3)
-NACL_CONCENTRATIONS_M: list[float] = [0.00, 0.20, 0.40, 0.60, 0.80, 1.00]
+from salty.units import cm3_to_dm3
+
+STANDARD_TEMP_C: float = 26.0
+TEMP_TOLERANCE_C: float = 1.0
+ACID_CONCENTRATION_M: float = 0.10
+BASE_CONCENTRATION_M: float = 0.10
+SAMPLE_VOLUME_CM3: float = 25.00
+NACL_CONCENTRATIONS_M: list[float] = [0.00, 0.20, 0.40, 0.60, 0.80]
 _EQUIPMENT_UNCERTAINTIES: Dict[str, Tuple[float, str]] = {
-    "25.0 cm3 pipette": (0.06, "abs"),  # ±0.06 cm^3 at 20°C
-    "50.0 cm3 burette": (0.05, "abs"),  # ±0.05 cm^3 (total volume)
-    "burette reading": (0.02, "abs"),  # ±0.02 cm^3 (individual graduations)
-    "250 cm3 beaker": (5.0, "pct"),  # ±5% (graduations for estimation only)
-    "100 cm3 volumetric flask": (0.10, "abs"),  # ±0.10 cm^3 at 20°C
-    "Vernier pH Sensor": (0.3, "abs"),  # ±0.3 pH units (measures activity)
-    "Digital thermometer": (0.1, "abs"),  # ±0.1°C
-    "Analytical balance": (0.01, "abs"),  # ±0.01 g
+    "25.0 cm3 pipette": (0.06, "abs"),
+    "50.0 cm3 burette": (0.10, "abs"),
+    "burette reading": (0.02, "abs"),
+    "250 cm3 beaker": (5.0, "pct"),
+    "100 cm3 volumetric flask": (0.10, "abs"),
+    "Vernier pH Sensor": (0.3, "abs"),
+    "Digital thermometer": (0.1, "abs"),
+    "Analytical balance": (0.01, "abs"),
 }
 
 
 @dataclass(frozen=True)
 class Quantity:
-    """Store a value with its associated systematic uncertainty.
+    """Value container with explicit absolute systematic uncertainty.
+
+    Args:
+        value (float): Numerical value of a measured or derived quantity.
+        uncertainty (float | None, optional): Absolute systematic uncertainty
+            in the same unit as ``value``. Defaults to ``None``.
+        unit (str, optional): Unit label for reporting. Defaults to ``""``.
 
     Attributes:
-        value: Numerical value of the measured or computed quantity.
-        uncertainty: Systematic uncertainty associated with the value.
-        unit: Unit string describing the quantity.
+        value (float): Numerical value of the quantity.
+        uncertainty (float | None): Absolute uncertainty in the same unit.
+        unit (str): Unit label string.
+
+    Note:
+        This dataclass is immutable (`frozen=True`) to avoid accidental mutation of
+        validated values in reporting pipelines.
+
+    References:
+        Structured value-plus-uncertainty representation for analytical reporting.
     """
 
     value: float
@@ -54,18 +62,28 @@ class Quantity:
 
 
 def uncertainty_for_equipment(equipment: str, value: float | None = None) -> float:
-    """Return the absolute systematic uncertainty for named equipment.
+    """Return absolute uncertainty for a named instrument specification.
 
     Args:
-        equipment: Name of the laboratory instrument.
-        value: Measured value required for percent-based uncertainties.
+        equipment (str): Instrument name key in the equipment uncertainty
+            table.
+        value (float | None, optional): Value required when the table entry is
+            percentage-based. Defaults to ``None``.
 
     Returns:
-        Absolute uncertainty for the specified equipment.
+        float: Absolute uncertainty in the instrument's measurement unit.
 
     Raises:
-        KeyError: If the equipment name is unknown.
-        ValueError: If a percent-based uncertainty is requested without a value.
+        KeyError: If ``equipment`` is not present in the uncertainty table.
+        ValueError: If a percent-based uncertainty is requested without
+            ``value``.
+
+    Note:
+        Equipment keys are intentionally explicit to avoid silent fallback to
+    ambiguous instrument assumptions.
+
+    References:
+        Instrument-specification uncertainty lookup tables in analytical methods.
     """
     entry = _EQUIPMENT_UNCERTAINTIES.get(equipment)
     if entry is None:
@@ -81,17 +99,27 @@ def uncertainty_for_equipment(equipment: str, value: float | None = None) -> flo
 def burette_delivered_uncertainty(
     reading_uncertainty: float, readings: int = 2
 ) -> float:
-    """Compute delivered-volume uncertainty from burette readings.
+    """Compute delivered-volume uncertainty from repeated burette readings.
 
     Args:
-        reading_uncertainty: Absolute uncertainty per burette reading.
-        readings: Number of readings contributing to the delivered volume.
+        reading_uncertainty (float): Absolute uncertainty per burette reading
+            in cm^3.
+        readings (int, optional): Number of readings used to form delivered
+            volume (typically initial and final burette readings). Defaults to
+            ``2``.
 
     Returns:
-        Absolute systematic uncertainty in delivered volume.
+        float: Absolute delivered-volume uncertainty in cm^3.
 
     Raises:
-        ValueError: If ``readings`` is less than one.
+        ValueError: If ``readings < 1``.
+
+    Note:
+        In this project, delivered volume usually derives from two readings:
+        burette initial and burette final.
+
+    References:
+        Delivered-volume uncertainty from independent burette readings.
     """
     if readings < 1:
         raise ValueError("readings must be >= 1")
@@ -99,6 +127,18 @@ def burette_delivered_uncertainty(
 
 
 def _round_uncertainty(u: float) -> Tuple[float, int]:
+    """Round an uncertainty to IB-style significant figures.
+
+    Args:
+        u (float): Absolute uncertainty value.
+
+    Returns:
+        tuple[float, int]: Rounded uncertainty and decimal places used.
+
+    Note:
+        Use one significant figure by default, or two when the leading digit
+        is 1.
+    """
     if u <= 0 or not math.isfinite(u):
         return u, 0
 
@@ -119,16 +159,23 @@ def _round_uncertainty(u: float) -> Tuple[float, int]:
 
 
 def round_value_to_uncertainty(value: float, uncertainty: float) -> Tuple[float, float]:
-    """Round a value and uncertainty using IB significant-figure rules.
+    """Round a value/uncertainty pair using IB-style significant figures.
 
     Args:
-        value: Raw numerical value.
-        uncertainty: Raw absolute uncertainty.
+        value (float): Raw numerical value.
+        uncertainty (float): Raw absolute uncertainty (same unit as
+            ``value``).
 
     Returns:
-        A tuple of ``(rounded_value, rounded_uncertainty)`` where the
-        uncertainty is rounded to one significant figure (two when the
-        leading digit is 1) and the value is rounded to the same precision.
+        tuple[float, float]: ``(rounded_value, rounded_uncertainty)`` with
+        aligned precision.
+
+    Note:
+        The uncertainty is rounded to one significant figure, except two when the
+        leading digit is 1.
+
+    References:
+        IB/ISO-style uncertainty and value precision alignment conventions.
     """
     ru, ndigits = _round_uncertainty(abs(float(uncertainty)))
     if not math.isfinite(ru) or ru == 0:
@@ -137,6 +184,15 @@ def round_value_to_uncertainty(value: float, uncertainty: float) -> Tuple[float,
 
 
 def _format_number_with_rounding(x: float, ndigits: int) -> str:
+    """Format a number with fixed decimal places from uncertainty rules.
+
+    Args:
+        x (float): Number to format.
+        ndigits (int): Decimal places to keep.
+
+    Returns:
+        str: Formatted numeric string.
+    """
     xr = round(float(x), ndigits)
     if ndigits > 0:
         return f"{xr:.{ndigits}f}"
@@ -146,16 +202,24 @@ def _format_number_with_rounding(x: float, ndigits: int) -> str:
 def format_value_with_uncertainty(
     value: float, uncertainty: float, unit: str = ""
 ) -> str:
-    """Format a value and uncertainty as a human-readable string.
+    """Format a value with uncertainty as ``value +/- uncertainty [unit]``.
 
     Args:
-        value: Numerical value to report.
-        uncertainty: Absolute uncertainty associated with the value.
-        unit: Optional unit string appended to the formatted output.
+        value (float): Numerical value to report.
+        uncertainty (float): Absolute uncertainty paired with ``value`` in the
+            same unit.
+        unit (str, optional): Optional unit string appended to the output.
+            Defaults to ``""``.
 
     Returns:
-        A formatted string in the form ``value ± uncertainty unit`` with
-        appropriate rounding.
+        str: Human-readable formatted result with aligned precision.
+
+    Note:
+        Falls back to compact general formatting when uncertainty is non-finite or
+    rounds to zero.
+
+    References:
+        Scientific value-plus-uncertainty reporting notation.
     """
     ru, ndigits = _round_uncertainty(abs(float(uncertainty)))
     if ru == 0 or not math.isfinite(ru):
@@ -169,17 +233,27 @@ def format_value_with_uncertainty(
 
 
 def combine_uncertainties(terms: list[float], method: str = "worst_case") -> float:
-    """Combine absolute uncertainties with explicit propagation rules.
+    """Combine absolute uncertainty terms under a selected propagation rule.
 
     Args:
-        terms: List of absolute uncertainty contributions.
-        method: ``"worst_case"`` (sum of absolute values) or ``"quadrature"``.
+        terms (list[float]): Absolute uncertainty contributions in consistent
+            units.
+        method (str, optional): Combination rule, either ``"worst_case"``
+            (arithmetic sum) or ``"quadrature"`` (root-sum-of-squares).
+            Defaults to ``"worst_case"``.
 
     Returns:
-        The combined absolute uncertainty.
+        float: Combined absolute uncertainty in the same unit as ``terms``.
 
     Raises:
-        ValueError: If an unsupported method is requested.
+        ValueError: If ``method`` is unsupported.
+
+    Note:
+        ``worst_case`` is conservative and does not assume independence.
+        ``quadrature`` assumes approximately independent terms.
+
+    References:
+        Worst-case sum and root-sum-of-squares uncertainty combination rules.
     """
     vals = [abs(float(t)) for t in terms if math.isfinite(t) and abs(float(t)) > 0]
     if not vals:
@@ -194,18 +268,26 @@ def combine_uncertainties(terms: list[float], method: str = "worst_case") -> flo
 def add_subtract(
     uncertainties: Mapping[str, Tuple[float, float, str]] | list[float],
 ) -> dict | float:
-    """Propagate systematic uncertainty for addition or subtraction.
+    """Propagate worst-case uncertainty for additive relationships.
 
     Args:
-        uncertainties: Either a list of absolute uncertainties or a mapping of
-            named terms ``{name: (value, uncertainty, unit)}``.
+        uncertainties (Mapping[str, tuple[float, float, str]] | list[float]): Either
+            a list of absolute uncertainties or a mapping
+            ``{name: (value, uncertainty, unit)}``.
 
     Returns:
-        The combined uncertainty (list input) or a dictionary containing the
-        combined value, uncertainty, unit, and explanatory text (mapping input).
+        dict | float: List mode returns combined absolute uncertainty (float).
+        Mapping mode returns ``value``, ``uncertainty``, ``unit``, and an audit
+        ``text`` expression.
 
     Raises:
-        ValueError: If units are inconsistent in the mapping form.
+        ValueError: If mapping-mode units are inconsistent.
+
+    References:
+        Linear worst-case propagation for sums and differences.
+
+    Note:
+        Mapping mode preserves units and returns explanatory text for audit trails.
     """
     if isinstance(uncertainties, list):
         return float(sum(abs(float(u)) for u in uncertainties))
@@ -219,7 +301,8 @@ def add_subtract(
     uncerts = [abs(float(v[1])) for v in uncertainties.values()]
     value = float(sum(values))
     unc = float(sum(uncerts))
-    text = "Δy = " + " + ".join(f"{u:.3g}" for u in uncerts) + f" = {unc:.3g}"
+    parts = " + ".join(f"{u:.3g}" for u in uncerts)
+    text = f"Δy = {parts} = {unc:.3g}"
     return {"value": value, "uncertainty": unc, "unit": unit, "text": text}
 
 
@@ -227,23 +310,30 @@ def mul_div(
     values: Mapping[str, Tuple[float, float, str]] | list[float],
     uncertainties: Mapping[str, Tuple[float, float, str]] | list[float] | None = None,
 ) -> dict | float:
-    """Propagate worst-case uncertainty for multiplication or division.
-
-    This function supports two explicit calling conventions:
-        1) ``mul_div(values_list, uncertainties_list)``
-        2) ``mul_div(numerator_mapping, denominator_mapping)``
+    """Propagate worst-case uncertainty for products and quotients.
 
     Args:
-        values: List of values or a mapping of numerator terms.
-        uncertainties: List of uncertainties (list mode) or a mapping of
-            denominator terms (mapping mode).
+        values (Mapping[str, tuple[float, float, str]] | list[float]): Either
+            list of values (list mode) or numerator mapping (mapping mode).
+        uncertainties (Mapping[str, tuple] | list[float] | None, optional):
+            In list mode, provide a list of absolute uncertainties aligned to
+            ``values``. In mapping mode, provide denominator mapping with
+            ``(value, uncertainty, unit)`` tuples. Defaults to ``None``.
 
     Returns:
-        The combined uncertainty (list mode) or a dictionary containing the
-        combined value, uncertainty, and metadata (mapping mode).
+        dict | float: List mode returns combined absolute uncertainty (float).
+        Mapping mode returns output ``value`` and propagated ``uncertainty``.
 
     Raises:
-        ValueError: If inputs are malformed or contain invalid values.
+        ValueError: If modes are mixed incorrectly, lengths mismatch, values
+            are zero, or non-finite inputs are provided.
+
+    Note:
+        Uses worst-case relative-uncertainty addition:
+        ``Δy/|y| = Σ |Δx_i/x_i|``.
+
+    References:
+        Relative uncertainty propagation for products and quotients.
     """
     if isinstance(values, list):
         if uncertainties is None or isinstance(uncertainties, dict):
@@ -289,20 +379,28 @@ def mul_div(
 def power(
     value: float, uncertainty: float, exponent: float, unit: str = ""
 ) -> dict | float:
-    """Propagate worst-case uncertainty for a power-law relationship.
+    """Propagate uncertainty through a power-law transform ``y = x^n``.
 
     Args:
-        value: Base value.
-        uncertainty: Absolute uncertainty in the base value.
-        exponent: Power-law exponent.
-        unit: Optional unit string for the resulting value.
+        value (float): Base value ``x``.
+        uncertainty (float): Absolute uncertainty ``Δx`` in the same unit as
+            ``value``.
+        exponent (float): Exponent ``n`` in ``y = x^n``.
+        unit (str, optional): Optional output unit label. Defaults to ``""``.
 
     Returns:
-        A dictionary containing the propagated value and uncertainty.
+        dict: Dictionary with propagated ``value``, ``uncertainty``, ``unit``,
+        and audit ``text``.
 
     Raises:
-        ValueError: If the propagation would require complex arithmetic or if
-            the base value is zero with non-zero uncertainty.
+        ValueError: If ``value == 0`` with non-zero uncertainty, or if
+            ``value < 0`` with non-integer exponent.
+
+    Note:
+        Uses ``Δy/|y| = |n| * (Δx/|x|)`` where applicable.
+
+    References:
+        Power-law uncertainty propagation from first-order relative sensitivity.
     """
     value = float(value)
     uncertainty = abs(float(uncertainty))
@@ -338,42 +436,32 @@ def power(
 
 
 def concentration_uncertainty(concentration: float) -> float:
-    """Compute systematic uncertainty for NaCl concentration preparation.
-
-    NaCl acts as an ionic strength modifier in this investigation. Each NaCl
-    formula unit dissociates into Na⁺ and Cl⁻, so ionic strength μ is:
-
-        μ = 0.5 Σ c_i z_i^2 ≈ [NaCl] (for 1:1 electrolyte)
-
-    Higher ionic strength increases electrostatic shielding, causing activity
-    coefficients (γ) to deviate from unity and shifting the apparent pKa.
-
-    Preparation method (from IA procedure):
-        1. Weigh solid NaCl to ±0.01 g using analytical balance
-        2. Transfer quantitatively to 100.0 cm^3 volumetric flask (±0.10 cm^3)
-        3. Add ~40 cm^3 distilled water, swirl to dissolve
-        4. Add 10.00 cm^3 of 1.00 M CH₃COOH stock using volumetric pipette
-        5. Dilute to mark with distilled water
+    """Estimate systematic uncertainty in prepared NaCl concentration.
 
     Args:
-        concentration: NaCl concentration in mol dm^-3 (M).
-            Valid range: 0.00-1.00 M as per experimental design.
+        concentration (float): Target NaCl concentration in mol dm^-3.
 
     Returns:
-        The absolute systematic uncertainty in the NaCl concentration (M),
-        propagated from analytical balance (±0.01 g) and volumetric flask
-        (±0.10 cm^3) uncertainties using worst-case combination.
+        float: Absolute concentration uncertainty in mol dm^-3.
 
     Note:
-        For 0.00 M (no NaCl added), returns 0.0 by definition.
+        Assumes preparation from weighed NaCl in a 100.0 cm^3 volumetric flask.
+        Worst-case relative propagation is applied to
+        ``c = m / (M_r * V)``. For ``concentration == 0.0``, returns ``0.0``
+        by definition. IA correspondence: this function mirrors the concentration
+        preparation uncertainty narrative used for the independent variable.
+
+    References:
+        Ionic strength definition for 1:1 electrolytes and standard worst-case
+        uncertainty propagation.
     """
     if concentration == 0.0 or not math.isfinite(concentration):
         return 0.0
 
     # NaCl molar mass: 58.44 g mol^-1
     mw_nacl = 58.44
-    # Preparation volume: 100.0 cm^3 = 0.100 dm^3
-    volume_dm3 = 0.1
+    # Preparation volume: 100.0 cm^3 converted explicitly to dm^3
+    volume_dm3 = cm3_to_dm3(100.0)
     # Required mass of NaCl for target concentration
     mass = concentration * volume_dm3 * mw_nacl
 
@@ -393,6 +481,4 @@ def concentration_uncertainty(concentration: float) -> float:
     rel_unc_v = delta_volume / volume_dm3
     # Worst-case combination: c = m/(M·V) → Δc/c = Δm/m + ΔV/V
     rel_unc_c = combine_uncertainties([rel_unc_m, rel_unc_v], method="worst_case")
-    # Round to appropriate significant figures per IB conventions
-    _, unc = round_value_to_uncertainty(concentration, float(concentration * rel_unc_c))
-    return unc
+    return float(concentration * rel_unc_c)
