@@ -1,4 +1,11 @@
-"""Prepare Logger Pro titration exports for two-stage analysis."""
+"""Prepare raw titration exports for IA-ready analytical processing.
+
+This module maps directly to the front end of the IA method:
+- import raw Logger Pro CSV exports,
+- normalize headers and units,
+- extract run-specific tables, and
+- aggregate repeated readings into step-level equilibrium summaries.
+"""
 
 from __future__ import annotations
 
@@ -23,10 +30,10 @@ def _strip_uncertainty_from_columns(df: pd.DataFrame) -> pd.DataFrame:
     to restore the original column names expected by the processing pipeline.
 
     Args:
-        df: DataFrame with potentially annotated column headers.
+        df (pandas.DataFrame): Table with possibly annotated column headers.
 
     Returns:
-        DataFrame with cleaned column names.
+        pandas.DataFrame: Table with uncertainty suffixes removed from headers.
     """
     cleaned_columns = {}
     for col in df.columns:
@@ -43,14 +50,35 @@ def _strip_uncertainty_from_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _round_to_resolution(x: pd.Series, res: Optional[float]) -> pd.Series:
-    """Round values to a specified resolution (bin width)."""
+    """Round numeric values to a specified measurement resolution.
+
+    Args:
+        x (pandas.Series): Numeric values to round (typically volume in cm^3).
+        res (float | None): Resolution/bin width in the same unit as ``x``.
+
+    Returns:
+        pandas.Series: Rounded values. Return unchanged values when ``res`` is
+        ``None`` or non-positive.
+    """
     if res is None or res <= 0:
         return x
     return (np.round(x / res) * res).astype(float)
 
 
 def _infer_recorded_resolution(x: pd.Series) -> Optional[float]:
-    """Infer the recorded volume resolution from observed step sizes."""
+    """Infer recording resolution from observed positive step increments.
+
+    Args:
+        x (pandas.Series): Observed recorded values (typically volume in cm^3).
+
+    Returns:
+        float | None: Best-matching candidate resolution in cm^3, or ``None``
+        when inference is not reliable.
+
+    Note:
+        Candidate set is ``[0.01, 0.02, 0.05, 0.10, 0.20]`` cm^3 and requires
+        relative mismatch <= 35%.
+    """
     xv = pd.to_numeric(x, errors="coerce")
     xv = xv[np.isfinite(xv)]
     if len(xv) < 3:
@@ -74,7 +102,21 @@ def _ensure_strictly_increasing_unique(
     x_col: str,
     y_cols: Optional[list[str]] = None,
 ) -> pd.DataFrame:
-    """Return a DataFrame with strictly increasing, unique x-values."""
+    """Enforce strictly increasing unique x-values for downstream analysis.
+
+    Args:
+        df (pandas.DataFrame): Input dataframe.
+        x_col (str): Independent-variable column (for example, ``Volume (cm^3)``).
+        y_cols (list[str] | None): Dependent/metadata columns to aggregate when
+            duplicate ``x_col`` values are found.
+
+    Returns:
+        pandas.DataFrame: Sorted dataframe with unique ``x_col`` values.
+
+    Note:
+        Apply median aggregation for pH-like columns, sum for count-like columns,
+        and mean for other columns.
+    """
     if y_cols is None:
         y_cols = []
 
@@ -115,15 +157,25 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
     of volume data for downstream chemical analysis.
 
     Args:
-        df: Raw DataFrame obtained from ``load_titration_data``.
+        df (pandas.DataFrame): Raw Logger Pro table from
+            ``load_titration_data``.
 
     Returns:
-        A mapping from run identifiers to dictionaries containing:
-            - ``df``: DataFrame with ``Volume (cm^3)`` and ``pH`` columns.
-            - ``x_col``: The explicit x-axis column name (always ``Volume (cm^3)``).
+        dict[str, dict]: Mapping from run prefix (for example ``Run 1``) to a
+        dictionary with ``df`` (tidy run table) and ``x_col``
+        (independent-variable label, usually ``Volume (cm^3)``).
 
     Raises:
-        ValueError: If a run contains pH data without a valid volume axis.
+        ValueError: If pH values exist for a run but no valid volume axis
+            (cm^3) is available.
+
+    Note:
+        Uncertainty annotations in column headers are stripped before run parsing.
+        IA correspondence: this function enforces the requirement that each run
+        has paired volume and pH data before chemical interpretation.
+
+    References:
+        Logger Pro multi-run CSV structure conventions.
     """
     # Strip uncertainty annotations from column headers
     df = _strip_uncertainty_from_columns(df)
@@ -211,23 +263,41 @@ def aggregate_volume_steps(
     ("tail") measurements, which mitigates transient mixing and electrode lag.
 
     Args:
-        df: Raw titration data containing continuous pH readings.
-        volume_col: Column name for the delivered volume (independent variable).
-        ph_col: Column name for the measured pH values.
-        volume_bin: Optional rounding resolution applied before grouping. This
-            should match the recording resolution of the burette.
-        auto_bin_if_needed: Whether to infer a sensible bin width from the
-            recorded volume increments when no explicit bin is provided.
-        time_col: Optional time column used to estimate equilibration drift.
-        tail_max: Maximum number of readings in the tail window per step.
-        tail_min: Minimum number of readings required in the tail window.
+        df (pandas.DataFrame): Raw run table containing repeated pH
+            measurements at each delivered volume.
+        volume_col (str, optional): Delivered-volume column name in cm^3.
+            Defaults to ``"Volume (cm^3)"``.
+        ph_col (str, optional): pH measurement column name (pH units).
+            Defaults to ``"pH"``.
+        volume_bin (float | None, optional): Optional volume rounding/binning
+            width in cm^3. Defaults to ``DEFAULT_VOLUME_BIN``.
+        auto_bin_if_needed (bool, optional): If ``True`` and ``volume_bin`` is
+            ``None``, infer a bin width from observed volume spacing.
+            Defaults to ``False``.
+        time_col (str | None, optional): Optional time column in minutes used
+            for per-step drift slope estimation. Defaults to ``"Time (min)"``.
+        tail_max (int, optional): Maximum number of trailing readings per step
+            used for equilibrium summary. Defaults to ``10``.
+        tail_min (int, optional): Minimum number of trailing readings per step
+            used for equilibrium summary. Defaults to ``3``.
 
     Returns:
-        A DataFrame containing one row per volume step with equilibrium pH
-        statistics and metadata.
+        pandas.DataFrame: Step-aggregated table with one row per volume step
+        and columns including ``pH_step`` (pH units), ``pH_step_sd`` (pH
+        units), ``pH_drift_step`` (pH units), ``pH_slope_step`` (pH min^-1),
+        ``n_step`` (count), and ``n_tail`` (count).
 
     Raises:
-        ValueError: If the required volume or pH columns are absent.
+        ValueError: If required input columns are missing.
+
+    Note:
+        ``pH_step`` is computed as the median of a tail window to reduce mixing
+        transients and electrode lag effects.
+        IA correspondence: this represents the equilibrium-reading reduction
+        step applied before derivative endpoint detection and buffer modeling.
+
+    References:
+        Equilibration-tail summarization for potentiometric titration traces.
     """
     if volume_col not in df.columns or ph_col not in df.columns:
         raise ValueError(
@@ -344,13 +414,21 @@ def load_titration_data(filepath: str) -> pd.DataFrame:
     stripped during extraction if present.
 
     Args:
-        filepath: Path to the CSV file on disk.
+        filepath (str): CSV file path.
 
     Returns:
-        A DataFrame containing the raw Logger Pro export.
+        pandas.DataFrame: Raw Logger Pro table.
 
     Raises:
-        FileNotFoundError: If the file path does not exist.
-        pandas.errors.ParserError: If the CSV cannot be parsed.
+        FileNotFoundError: If the path does not exist.
+        pandas.errors.ParserError: If CSV parsing fails.
+
+    Note:
+        Header normalization and uncertainty-annotation stripping are performed in
+        downstream extraction utilities, not during file load.
+        IA correspondence: this is the raw data import boundary for provenance.
+
+    References:
+        pandas CSV I/O behavior for tabular scientific exports.
     """
     return pd.read_csv(filepath)

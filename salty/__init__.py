@@ -1,7 +1,7 @@
 """Public API for the apparent pKa analysis package.
 
 Research Question:
-    How does [NaCl], varied from 0.00 to 1.00 mol dm^-3 in 0.20 mol dm^-3 intervals,
+    How does [NaCl], varied from 0.00 to 0.80 mol dm^-3 in 0.20 mol dm^-3 intervals,
     affect pH at the half-equivalence point (and thus pKa_app) for 0.10 mol dm^-3
     ethanoic acid titrated with 0.10 mol dm^-3 NaOH, measured at 26 ± 1°C?
 

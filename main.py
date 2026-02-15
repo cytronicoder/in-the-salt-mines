@@ -3,26 +3,43 @@
 
 import logging
 import os
+import re
 import sys
 import time
+from dataclasses import dataclass
+from typing import Dict, List, Tuple
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from scipy import stats
 
 from salty.analysis import (
+    analyze_titration,
     build_summary_plot_data,
     calculate_statistics,
     create_results_dataframe,
     print_statistics,
-    process_all_files,
 )
+from salty.data_processing import extract_runs, load_titration_data
 from salty.output import save_data_to_csv
 from salty.plotting import (
     generate_all_qc_plots,
     plot_statistical_summary,
     plot_titration_curves,
 )
+from salty.reporting import add_formatted_reporting_columns
+
+EXACT_IV_LEVELS: tuple[float, ...] = (0.0, 0.2, 0.4, 0.6, 0.8)
+IV_TOL = 1e-9
 
 
 def _configure_logging():
-    """Configure logging and ensure log file is reset on each run."""
+    """Configure application logging for reproducible pipeline runs.
+
+    Returns:
+        None: Update root logger handlers and levels in place.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
@@ -33,31 +50,601 @@ def _configure_logging():
     )
 
 
+@dataclass(frozen=True)
+class IterationSpec:
+    """Store metadata for one analysis-iteration subset.
+
+    Attributes:
+        name (str): Iteration identifier used in output paths.
+        description (str): Human-readable description of the filter definition.
+    """
+
+    name: str
+    description: str
+
+
+def _extract_nacl_concentration(file_path: str) -> float | None:
+    """Extract NaCl concentration from a filename token.
+
+    Args:
+        file_path (str): Input file path that may contain tokens like ``0.8M``.
+
+    Returns:
+        float | None: Parsed concentration in mol dm^-3, or ``None`` if no
+        concentration token is present.
+    """
+    base = os.path.basename(file_path)
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)M", base, flags=re.IGNORECASE)
+    if not match:
+        return None
+    return float(match.group(1))
+
+
+def _normalize_headers(raw_df: pd.DataFrame) -> pd.DataFrame:
+    """Normalize raw Logger Pro headers for parser compatibility.
+
+    Args:
+        raw_df (pandas.DataFrame): Raw Logger Pro table with original headers.
+
+    Returns:
+        pandas.DataFrame: Header-normalized table with ``cm^3`` units and
+        remapped ``Latest:`` run prefixes.
+
+    Note:
+        Replace unicode superscript ``cm³`` with ``cm^3`` and convert
+        ``Latest:`` columns into an explicit ``Run N:`` prefix.
+    """
+    df = raw_df.copy()
+    df.columns = [str(col).replace("cm³", "cm^3").strip() for col in df.columns]
+
+    run_prefixes = []
+    for col in df.columns:
+        if col.startswith("Run ") and ":" in col:
+            prefix = col.split(":", 1)[0]
+            if prefix not in run_prefixes:
+                run_prefixes.append(prefix)
+
+    max_run = 0
+    for prefix in run_prefixes:
+        match = re.match(r"Run\s+(\d+)$", prefix)
+        if match:
+            max_run = max(max_run, int(match.group(1)))
+
+    if any(col.startswith("Latest:") for col in df.columns):
+        next_run = f"Run {max_run + 1 if max_run >= 1 else 1}"
+        rename_map = {}
+        for col in df.columns:
+            if col.startswith("Latest:"):
+                rename_map[col] = col.replace("Latest:", f"{next_run}:", 1)
+        df = df.rename(columns=rename_map)
+
+    return df
+
+
+def _prepare_input_files() -> List[Tuple[str, float]]:
+    """Discover and standardize input files for analysis.
+
+    Returns:
+        list[tuple[str, float]]: Sorted ``(standardized_csv_path,
+        nacl_concentration_M)`` pairs filtered to exact designed IV levels.
+
+    Note:
+        This step normalizes Logger Pro headers and writes standardized copies
+        into ``data/_standardized_raw`` for provenance and deterministic reuse.
+    """
+    raw_glob = sorted(
+        [
+            os.path.join("data", "raw", name)
+            for name in os.listdir(os.path.join("data", "raw"))
+            if name.lower().endswith(".csv")
+        ]
+    )
+
+    standardized_dir = os.path.join("data", "_standardized_raw")
+    os.makedirs(standardized_dir, exist_ok=True)
+
+    import glob
+
+    for stale in glob.glob(os.path.join(standardized_dir, "*.csv")):
+        os.remove(stale)
+
+    files: List[Tuple[str, float]] = []
+    for path in raw_glob:
+        conc = _extract_nacl_concentration(path)
+        if conc is None:
+            logging.warning("Skipping file without concentration token: %s", path)
+            continue
+
+        if not any(abs(conc - allowed) <= IV_TOL for allowed in EXACT_IV_LEVELS):
+            logging.warning(
+                "Skipping file outside exact IV levels %s: %s (%.3f M)",
+                EXACT_IV_LEVELS,
+                path,
+                conc,
+            )
+            continue
+
+        raw_df = pd.read_csv(path)
+        std_df = _normalize_headers(raw_df)
+        std_path = os.path.join(standardized_dir, os.path.basename(path))
+        std_df.to_csv(std_path, index=False)
+        files.append((std_path, conc))
+
+    files = sorted(files, key=lambda item: (item[1], item[0]))
+    return files
+
+
+def _filter_exact_iv_results(results: list[dict]) -> list[dict]:
+    """Filter run results to exact designed ionic-strength levels.
+
+    Args:
+        results (list[dict]): Run-level analysis payloads.
+
+    Returns:
+        list[dict]: Subset where ``nacl_conc`` matches one of
+        ``EXACT_IV_LEVELS`` within ``IV_TOL``.
+    """
+    filtered = []
+    for res in results:
+        conc = float(res.get("nacl_conc", np.nan))
+        if any(abs(conc - allowed) <= IV_TOL for allowed in EXACT_IV_LEVELS):
+            filtered.append(res)
+    return filtered
+
+
+def _generate_additional_diagnostic_outputs(
+    results_df: pd.DataFrame,
+    processed_df: pd.DataFrame,
+    ia_dir: str,
+) -> None:
+    """Generate supplemental IA diagnostics from aggregated run tables.
+
+    Args:
+        results_df (pandas.DataFrame): Run-level results table.
+        processed_df (pandas.DataFrame): Condition-level processed summary table.
+        ia_dir (str): Output directory path for IA diagnostics.
+
+    Returns:
+        None: Write diagnostic CSV and PNG artifacts to ``ia_dir``.
+    """
+    os.makedirs(ia_dir, exist_ok=True)
+
+    repeats_cols = [
+        "Run",
+        "NaCl Concentration (M)",
+        "Apparent pKa",
+        "Uncertainty in Apparent pKa",
+        "Equivalence QC Pass",
+        "Veq (used)",
+        "Slope (buffer fit)",
+        "R2 (buffer fit)",
+        "Source File",
+    ]
+    repeats_df = (
+        results_df[repeats_cols].copy().sort_values(["NaCl Concentration (M)", "Run"])
+    )
+    repeats_df = add_formatted_reporting_columns(
+        repeats_df,
+        [("Apparent pKa", "Uncertainty in Apparent pKa")],
+    )
+    repeats_df.to_csv(os.path.join(ia_dir, "dv_repeats_table.csv"), index=False)
+
+    mean_df = (
+        processed_df[
+            [
+                "NaCl Concentration (M)",
+                "Mean pKa_app",
+                "SD pKa_app",
+                "SEM pKa_app",
+                "Combined uncertainty",
+            ]
+        ]
+        .dropna(subset=["NaCl Concentration (M)", "Mean pKa_app"])
+        .sort_values("NaCl Concentration (M)")
+        .reset_index(drop=True)
+    )
+
+    x = mean_df["NaCl Concentration (M)"].to_numpy(dtype=float)
+    y = mean_df["Mean pKa_app"].to_numpy(dtype=float)
+
+    if len(x) < 3:
+        return
+
+    # Unweighted linear regression
+    m_u, b_u = np.polyfit(x, y, 1)
+    yhat_u = m_u * x + b_u
+    resid_u = y - yhat_u
+    ss_res_u = float(np.sum((y - yhat_u) ** 2))
+    ss_tot = float(np.sum((y - np.mean(y)) ** 2))
+    r2_u = float(1.0 - ss_res_u / ss_tot) if ss_tot > 0 else np.nan
+
+    # Weighted linear regression (if SEM available and finite)
+    sem = mean_df["SEM pKa_app"].to_numpy(dtype=float)
+    valid_w = np.isfinite(sem) & (sem > 0)
+    if np.all(valid_w):
+        w = 1.0 / sem
+        m_w, b_w = np.polyfit(x, y, 1, w=w)
+        yhat_w = m_w * x + b_w
+        ss_res_w = float(np.sum((y - yhat_w) ** 2))
+        r2_w = float(1.0 - ss_res_w / ss_tot) if ss_tot > 0 else np.nan
+    else:
+        m_w, b_w, r2_w = np.nan, np.nan, np.nan
+
+    regression_compare = pd.DataFrame(
+        [
+            {
+                "model": "unweighted_linear",
+                "slope": m_u,
+                "intercept": b_u,
+                "R2": r2_u,
+            },
+            {
+                "model": "weighted_linear(1/SEM)",
+                "slope": m_w,
+                "intercept": b_w,
+                "R2": r2_w,
+            },
+        ]
+    )
+    regression_compare.to_csv(
+        os.path.join(ia_dir, "regression_weighted_vs_unweighted.csv"), index=False
+    )
+
+    # Influence diagnostics (means-level linear model)
+    X = np.column_stack([np.ones_like(x), x])
+    xtx_inv = np.linalg.inv(X.T @ X)
+    h = np.array([X[i] @ xtx_inv @ X[i].T for i in range(len(x))], dtype=float)
+    p = 2  # intercept + slope
+    dof = max(len(x) - p, 1)
+    mse = float(np.sum(resid_u**2) / dof)
+    if mse > 0:
+        cooks_d = (resid_u**2 / (p * mse)) * (h / ((1 - h) ** 2))
+    else:
+        cooks_d = np.full_like(x, np.nan)
+
+    diagnostics_df = pd.DataFrame(
+        {
+            "NaCl Concentration (M)": x,
+            "Mean pKa_app": y,
+            "Predicted pKa_app (unweighted)": yhat_u,
+            "Residual (unweighted)": resid_u,
+            "Leverage": h,
+            "Cooks distance": cooks_d,
+        }
+    )
+    diagnostics_df.to_csv(os.path.join(ia_dir, "diagnostic_metrics.csv"), index=False)
+
+    # Plot 1: Residuals vs IV
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    ax.axhline(0.0, color="black", linewidth=1.0)
+    ax.scatter(x, resid_u, color="black", zorder=3)
+    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_ylabel("Residual (pKa_app)")
+    ax.set_title("Residuals vs IV (means)")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_residuals_vs_iv.png"), dpi=300)
+    plt.close(fig)
+
+    # Plot 2: Residual histogram
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    ax.hist(resid_u, bins=min(6, max(3, len(resid_u))), edgecolor="black")
+    ax.set_xlabel("Residual (pKa_app)")
+    ax.set_ylabel("Frequency")
+    ax.set_title("Residual Histogram")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_residual_histogram.png"), dpi=300)
+    plt.close(fig)
+
+    # Plot 3: Normal Q-Q plot
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    stats.probplot(resid_u, dist="norm", plot=ax)
+    ax.set_title("Residual Normal Q-Q Plot")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_residual_qq.png"), dpi=300)
+    plt.close(fig)
+
+    # Plot 4: Replicate jitter plot
+    fig, ax = plt.subplots(figsize=(8.4, 5.0))
+    rng = np.random.default_rng(42)
+    for conc, group in repeats_df.groupby("NaCl Concentration (M)"):
+        vals = pd.to_numeric(group["Apparent pKa"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        vals = vals[np.isfinite(vals)]
+        jitter = rng.uniform(-0.012, 0.012, size=len(vals))
+        ax.scatter(np.full(len(vals), conc) + jitter, vals, color="black", alpha=0.85)
+    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_ylabel("Apparent pKa (replicates)")
+    ax.set_title("Replicate Scatter by IV (precision)")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_replicate_jitter.png"), dpi=300)
+    plt.close(fig)
+
+    # Plot 5: SD vs IV
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    ax.plot(
+        mean_df["NaCl Concentration (M)"],
+        mean_df["SD pKa_app"],
+        marker="o",
+        color="black",
+    )
+    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_ylabel("SD of pKa_app")
+    ax.set_title("SD vs IV (heteroscedasticity check)")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_sd_vs_iv.png"), dpi=300)
+    plt.close(fig)
+
+    # Plot 6: Parity plot (measured mean vs predicted mean)
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    ax.scatter(yhat_u, y, color="black")
+    lo = float(min(np.min(yhat_u), np.min(y)))
+    hi = float(max(np.max(yhat_u), np.max(y)))
+    ax.plot([lo, hi], [lo, hi], linestyle="--", color="gray")
+    ax.set_xlabel("Predicted mean pKa_app")
+    ax.set_ylabel("Measured mean pKa_app")
+    ax.set_title("Parity Plot (means)")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_parity_measured_vs_predicted.png"), dpi=300)
+    plt.close(fig)
+
+    # Plot 7: Cook's distance
+    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    ax.stem(x, cooks_d, basefmt=" ")
+    ax.axhline(4 / len(x), linestyle="--", color="gray", linewidth=1.2)
+    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_ylabel("Cook's distance")
+    ax.set_title("Influence Diagnostics (Cook's distance)")
+    fig.tight_layout()
+    fig.savefig(os.path.join(ia_dir, "diag_cooks_distance.png"), dpi=300)
+    plt.close(fig)
+
+
+def _process_all_runs_robust(
+    files: List[Tuple[str, float]],
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Process all files while recording skipped runs explicitly.
+
+    Args:
+        files (list[tuple[str, float]]): Pairs of standardized CSV path and NaCl
+            concentration (mol dm^-3).
+
+    Returns:
+        tuple[list[dict], list[dict], list[dict]]: Successful run analyses,
+        skipped-run records, and raw-checked index rows.
+    """
+    results: list[dict] = []
+    skipped_runs: list[dict] = []
+    raw_checked_rows: list[dict] = []
+
+    raw_checked_dir = os.path.join("output", "ia", "raw_checked")
+    os.makedirs(raw_checked_dir, exist_ok=True)
+
+    import glob
+
+    for stale in glob.glob(os.path.join(raw_checked_dir, "*.csv")):
+        os.remove(stale)
+
+    for file_path, nacl_conc in files:
+        logging.info("Processing %s (NaCl %.2f M)", file_path, nacl_conc)
+        df_raw = load_titration_data(file_path)
+        try:
+            runs = extract_runs(df_raw)
+        except Exception as exc:  # noqa: BLE001
+            skipped_runs.append(
+                {
+                    "source_file": os.path.basename(file_path),
+                    "run": "<file>",
+                    "reason": str(exc),
+                }
+            )
+            continue
+
+        for run_name, run_info in runs.items():
+            run_df = run_info["df"].copy()
+            source_file = os.path.basename(file_path)
+
+            checked_name = (
+                f"{nacl_conc:.1f}M_{source_file.replace('.csv', '')}"
+                f"_{run_name.replace(' ', '_')}.csv"
+            )
+            checked_path = os.path.join(raw_checked_dir, checked_name)
+            run_df.to_csv(checked_path, index=False)
+
+            raw_checked_rows.append(
+                {
+                    "source_file": source_file,
+                    "run": run_name,
+                    "nacl_conc_M": nacl_conc,
+                    "rows": int(len(run_df)),
+                    "raw_checked_path": checked_path,
+                }
+            )
+
+            if "Volume (cm^3)" not in run_df.columns or len(run_df) < 10:
+                skipped_runs.append(
+                    {
+                        "source_file": source_file,
+                        "run": run_name,
+                        "reason": "Insufficient paired pH/volume rows",
+                    }
+                )
+                continue
+
+            try:
+                analysis = analyze_titration(run_df, f"{nacl_conc:.1f}M - {run_name}")
+                analysis["nacl_conc"] = nacl_conc
+                analysis["source_file"] = source_file
+                results.append(analysis)
+            except Exception as exc:  # noqa: BLE001
+                skipped_runs.append(
+                    {
+                        "source_file": source_file,
+                        "run": run_name,
+                        "reason": str(exc),
+                    }
+                )
+
+    return results, skipped_runs, raw_checked_rows
+
+
+def _build_iteration_results(
+    all_results: list[dict],
+    all_results_df: pd.DataFrame,
+    iteration: IterationSpec,
+) -> tuple[list[dict], pd.DataFrame]:
+    """Select run subsets for one iteration definition.
+
+    Args:
+        all_results (list[dict]): All successful run-level analysis payloads.
+        all_results_df (pandas.DataFrame): Consolidated run-level results table.
+        iteration (IterationSpec): Iteration filter specification.
+
+    Returns:
+        tuple[list[dict], pandas.DataFrame]: Selected result payloads and the
+        aligned filtered dataframe for this iteration.
+
+    Raises:
+        ValueError: If ``iteration.name`` is unsupported.
+    """
+    if iteration.name == "all_valid":
+        selected_df = all_results_df.copy()
+    elif iteration.name == "qc_pass":
+        selected_df = all_results_df[
+            all_results_df["Equivalence QC Pass"]
+        ].copy()  # noqa: E712
+    elif iteration.name == "strict_fit":
+        selected_df = all_results_df[
+            (all_results_df["Equivalence QC Pass"] == True)  # noqa: E712
+            & (all_results_df["R2 (buffer fit)"] >= 0.98)
+            & ((all_results_df["Slope (buffer fit)"] - 1.0).abs() <= 0.20)
+        ].copy()
+    else:
+        raise ValueError(f"Unknown iteration: {iteration.name}")
+
+    run_keys = {
+        (
+            str(row["Run"]),
+            float(row["NaCl Concentration (M)"]),
+            str(row["Source File"]),
+        )
+        for _, row in selected_df.iterrows()
+    }
+
+    selected_results = []
+    for res in all_results:
+        key = (
+            str(res.get("run_name", "")),
+            float(res.get("nacl_conc", np.nan)),
+            str(res.get("source_file", "")),
+        )
+        if key in run_keys:
+            selected_results.append(res)
+
+    return selected_results, selected_df.reset_index(drop=True)
+
+
+def _save_iteration_outputs(
+    iteration: IterationSpec,
+    iteration_results: list[dict],
+    iteration_results_df: pd.DataFrame,
+) -> Dict[str, object]:
+    """Generate figures/CSVs for one iteration slice and collect metrics.
+
+    Args:
+        iteration (IterationSpec): Iteration metadata and label.
+        iteration_results (list[dict]): Selected run-level payloads.
+        iteration_results_df (pandas.DataFrame): Filtered run-level dataframe.
+
+    Returns:
+        dict[str, object]: Iteration diagnostics row with run counts and fit
+        metrics.
+    """
+    from salty.schema import ResultColumns
+
+    out_dir = os.path.join("output", "iterations", iteration.name)
+    os.makedirs(out_dir, exist_ok=True)
+
+    if iteration_results_df.empty:
+        return {
+            "iteration": iteration.name,
+            "description": iteration.description,
+            "n_runs": 0,
+            "n_concentrations": 0,
+            "fit_slope": np.nan,
+            "fit_intercept": np.nan,
+            "fit_r2": np.nan,
+            "summary_plot": "",
+        }
+
+    stats_df = calculate_statistics(iteration_results_df)
+    summary = build_summary_plot_data(stats_df, iteration_results_df)
+
+    plot_titration_curves(iteration_results, out_dir, show_raw_pH=False)
+    summary_plot = plot_statistical_summary(summary, out_dir)
+    generate_all_qc_plots(iteration_results, iteration_results_df, out_dir)
+
+    save_data_to_csv(iteration_results_df, stats_df, out_dir)
+
+    cols = ResultColumns()
+    pka_vals = pd.to_numeric(iteration_results_df[cols.pka_app], errors="coerce")
+    pka_vals = pka_vals[np.isfinite(pka_vals)]
+
+    fit = summary.get("fit", {})
+    fit_slope = fit.get("m", np.nan)
+    fit_intercept = fit.get("b", np.nan)
+    fit_r2 = fit.get("r2", np.nan)
+
+    diagnostics_df = pd.DataFrame(
+        [
+            {
+                "iteration": iteration.name,
+                "description": iteration.description,
+                "n_runs": int(len(iteration_results_df)),
+                "n_concentrations": int(iteration_results_df[cols.nacl].nunique()),
+                "mean_pka_all_runs": (
+                    float(np.mean(pka_vals)) if len(pka_vals) else np.nan
+                ),
+                "sd_pka_all_runs": (
+                    float(np.std(pka_vals, ddof=1)) if len(pka_vals) >= 2 else np.nan
+                ),
+                "fit_slope": fit_slope,
+                "fit_intercept": fit_intercept,
+                "fit_r2": fit_r2,
+                "summary_plot": summary_plot,
+            }
+        ]
+    )
+    diagnostics_df.to_csv(
+        os.path.join(out_dir, "iteration_diagnostics.csv"), index=False
+    )
+
+    return diagnostics_df.iloc[0].to_dict()
+
+
 def main():
     """Execute the end-to-end titration analysis pipeline.
 
     Returns:
-        Exit code ``0`` on success or ``1`` if no valid results are obtained.
+        int: Exit code ``0`` on success or ``1`` if no valid results are
+        obtained.
     """
     try:
         _configure_logging()
         start_time = time.time()
         logging.info("Initializing titration analysis pipeline")
 
-        files = [
-            ("data/ms besant go brr brr- 0.0m nacl.csv", 0.0),
-            ("data/ms besant go brr brr v2- 0.0m nacl.csv", 0.0),
-            ("data/ms besant go brr brr v2- 0.2m nacl.csv", 0.2),
-            ("data/ms besant go brr brr v2- 0.4m nacl.csv", 0.4),
-            ("data/ms besant go brr brr v2- 0.6m nacl.csv", 0.6),
-            ("data/ms besant go brr brr- 0.8m nacl.csv", 0.8),
-            ("data/ms besant go brr - 1m nacl.csv", 1.0),
-            ("data/ms besant go brr brr v2- 1.0m nacl.csv", 1.0),
-        ]
+        files = _prepare_input_files()
         logging.info("Configured %d input files for analysis", len(files))
+        logging.info("Exact IV levels enforced: %s M", EXACT_IV_LEVELS)
+
+        if not files:
+            logging.error("No input files discovered in data/raw")
+            return 1
 
         step_start = time.time()
-        results = process_all_files(files)
+        results, skipped_runs, raw_checked_rows = _process_all_runs_robust(files)
+        results = _filter_exact_iv_results(results)
         step_duration = time.time() - step_start
         logging.info(
             "Titration data files processing completed in %.2f seconds", step_duration
@@ -70,6 +657,7 @@ def main():
             return 1
 
         logging.info("Successfully analyzed %d titration runs", len(results))
+        logging.info("Skipped %d runs due to validation/fit issues", len(skipped_runs))
         total_data_points = sum(len(res["data"]) for res in results)
         logging.info("Total data points processed: %d", total_data_points)
 
@@ -80,6 +668,99 @@ def main():
             "Results DataFrame creation completed in %.2f seconds", step_duration
         )
         logging.info("Results DataFrame shape: %s", results_df.shape)
+
+        output_dir = "output"
+        os.makedirs(output_dir, exist_ok=True)
+        logging.info("Output directory ensured: %s", output_dir)
+
+        ia_dir = os.path.join(output_dir, "ia")
+        os.makedirs(ia_dir, exist_ok=True)
+
+        pd.DataFrame(raw_checked_rows).to_csv(
+            os.path.join(ia_dir, "raw_checked_index.csv"), index=False
+        )
+        pd.DataFrame(skipped_runs).to_csv(
+            os.path.join(ia_dir, "skipped_runs.csv"), index=False
+        )
+        results_df.to_csv(
+            os.path.join(ia_dir, "individual_results_rawfiles.csv"), index=False
+        )
+
+        # Create supplemental IA summary (mean, SD, SEM, combined uncertainty)
+        grouped_rows = []
+        for conc, group in results_df.groupby("NaCl Concentration (M)"):
+            pka_vals = pd.to_numeric(group["Apparent pKa"], errors="coerce")
+            pka_vals = pka_vals[np.isfinite(pka_vals)]
+            n = int(len(pka_vals))
+            mean_pka = float(np.mean(pka_vals)) if n else np.nan
+            sd_pka = float(np.std(pka_vals, ddof=1)) if n >= 2 else np.nan
+            sem_pka = float(sd_pka / np.sqrt(n)) if n >= 2 else np.nan
+            half_range = (
+                float((np.max(pka_vals) - np.min(pka_vals)) / 2.0) if n >= 2 else np.nan
+            )
+
+            propagated = pd.to_numeric(
+                group["Uncertainty in Apparent pKa"], errors="coerce"
+            )
+            propagated = propagated[np.isfinite(propagated)]
+            mean_prop = float(np.mean(propagated)) if len(propagated) else np.nan
+
+            if np.isfinite(sem_pka) and np.isfinite(mean_prop):
+                combined_unc = float(np.sqrt(sem_pka**2 + mean_prop**2))
+            elif np.isfinite(mean_prop):
+                combined_unc = mean_prop
+            elif np.isfinite(sem_pka):
+                combined_unc = sem_pka
+            else:
+                combined_unc = np.nan
+
+            grouped_rows.append(
+                {
+                    "NaCl Concentration (M)": conc,
+                    "n": n,
+                    "Mean pKa_app": mean_pka,
+                    "SD pKa_app": sd_pka,
+                    "SEM pKa_app": sem_pka,
+                    "Half-range": half_range,
+                    "Mean propagated uncertainty": mean_prop,
+                    "Combined uncertainty": combined_unc,
+                }
+            )
+
+        processed_df = (
+            pd.DataFrame(grouped_rows)
+            .sort_values("NaCl Concentration (M)")
+            .reset_index(drop=True)
+        )
+        processed_df = add_formatted_reporting_columns(
+            processed_df,
+            [("Mean pKa_app", "Combined uncertainty")],
+        )
+        processed_df.to_csv(
+            os.path.join(ia_dir, "processed_summary_with_sd.csv"), index=False
+        )
+        _generate_additional_diagnostic_outputs(results_df, processed_df, ia_dir)
+
+        # Iterative analysis slices for IA robustness discussion
+        iterations = [
+            IterationSpec("all_valid", "All valid fitted runs"),
+            IterationSpec("qc_pass", "Only runs with Equivalence QC Pass = True"),
+            IterationSpec(
+                "strict_fit",
+                "QC pass + R2>=0.98 + |slope-1|<=0.20",
+            ),
+        ]
+
+        iteration_rows: List[Dict[str, object]] = []
+        for spec in iterations:
+            iter_results, iter_results_df = _build_iteration_results(
+                results, results_df, spec
+            )
+            row = _save_iteration_outputs(spec, iter_results, iter_results_df)
+            iteration_rows.append(row)
+
+        iteration_df = pd.DataFrame(iteration_rows)
+        iteration_df.to_csv(os.path.join(ia_dir, "iteration_overview.csv"), index=False)
 
         step_start = time.time()
         stats_df = calculate_statistics(results_df)
@@ -92,10 +773,6 @@ def main():
         )
 
         print_statistics(stats_df, results_df)
-
-        output_dir = "output"
-        os.makedirs(output_dir, exist_ok=True)
-        logging.info("Output directory ensured: %s", output_dir)
 
         import glob
 
@@ -133,6 +810,28 @@ def main():
 
         step_start = time.time()
         save_data_to_csv(results_df, stats_df, output_dir)
+        stats_df.to_csv(
+            os.path.join(ia_dir, "statistical_summary_rawfiles.csv"), index=False
+        )
+
+        summary = build_summary_plot_data(stats_df, results_df)
+        fit = summary.get("fit", {})
+        fit_df = pd.DataFrame(
+            [
+                {
+                    "model": "linear",
+                    "equation": (
+                        f"pKa_app = {fit.get('m', np.nan):.6f}*[NaCl] + "
+                        f"{fit.get('b', np.nan):.6f}"
+                    ),
+                    "slope": fit.get("m", np.nan),
+                    "intercept": fit.get("b", np.nan),
+                    "R2": fit.get("r2", np.nan),
+                }
+            ]
+        )
+        fit_df.to_csv(os.path.join(ia_dir, "fit_summary.csv"), index=False)
+
         step_duration = time.time() - step_start
         logging.info("CSV output completed in %.2f seconds", step_duration)
 
@@ -140,7 +839,7 @@ def main():
         logging.info("Total execution time: %.2f seconds", total_duration)
         logging.info("Analysis pipeline completed successfully")
         return 0
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001
         logging.exception("Analysis pipeline failed: %s", exc)
         return 1
 

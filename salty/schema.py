@@ -14,7 +14,7 @@ class ResultColumns:
 
     Attributes:
         nacl: Column name for NaCl concentration in mol dm^-3 (M).
-            Valid experimental range: 0.00-1.00 M in 0.20 M increments.
+            Valid experimental range: 0.00-0.80 M in 0.20 M increments.
             NaCl acts as an ionic strength modifier; it does not participate
             in the acid-base stoichiometry.
 
@@ -26,7 +26,7 @@ class ResultColumns:
 
         pka_unc: Column name for systematic uncertainty in pKa_app.
             Propagated from pH sensor (±0.3 pH units), burette readings (±0.02 cm^3),
-            volume delivery (±0.05 cm^3), and NaCl concentration preparation
+            volume delivery (±0.10 cm^3), and NaCl concentration preparation
             uncertainties. Reported following IB significant figure conventions.
     """
 

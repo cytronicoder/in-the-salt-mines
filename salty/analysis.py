@@ -1,34 +1,13 @@
-"""Orchestrate two-stage analysis for weak acid titration data.
+"""Run the core two-stage IB IA titration analysis workflow.
 
-This module implements the complete analysis pipeline for the IA investigation:
-'How NaCl Concentration Affects the Half-Equivalence pH in an Ethanoic Acid Titration'
+This module corresponds to the central IA processing sequence:
+1. Detect equivalence behavior from derivative information.
+2. Estimate half-equivalence pH for a Stage-1 apparent pKa anchor.
+3. Fit a buffer-region Henderson-Hasselbalch linear model for Stage-2
+   apparent pKa reporting.
 
-Experimental Design:
-    - Ethanoic acid (CH₃COOH): 0.10 mol dm⁻^3, 25.00 cm^3 sample
-    - Titrant (NaOH): 0.10 mol dm⁻^3
-    - NaCl concentrations: 0.00, 0.20, 0.40, 0.60, 0.80, 1.00 M
-    - Temperature: 26 ± 1°C
-    - pH measurement: Vernier pH Sensor (±0.3 pH units)
-    - Three replicate titrations per [NaCl] condition
-
-Analysis Strategy (Two-Stage):
-    Stage 1: Coarse pKa_app estimation
-        - Locate equivalence point (V_eq) from maximum dpH/dV
-        - Calculate half-equivalence volume: V_half = V_eq / 2
-        - Interpolate pH at V_half to obtain pKa_app (first estimate)
-
-    Stage 2: Refined Henderson-Hasselbalch regression
-        - Select buffer region: |pH - pKa_app| ≤ 1
-        - Fit pH = m·log₁₀(V/(V_eq - V)) + b within buffer region
-        - Extract refined pKa_app as intercept (b)
-        - Slope (m) should be ≈1.0; deviations indicate non-ideality
-
-Theoretical Context:
-    At higher [NaCl], ionic strength (μ) increases, causing activity coefficients
-    to deviate from unity. Since pH probes measure H⁺ activity rather than
-    concentration, the measured pH reflects an apparent pKa (pKa_app) that varies
-    with ionic strength. This investigation examines how pKa_app changes as a
-    function of [NaCl].
+Key outputs include run-level apparent pKa, equivalence diagnostics, and
+uncertainty terms required for IB-style reporting and QC subset filtering.
 """
 
 from __future__ import annotations
@@ -49,7 +28,6 @@ from .stats.uncertainty import (
     burette_delivered_uncertainty,
     combine_uncertainties,
     concentration_uncertainty,
-    round_value_to_uncertainty,
 )
 
 HAVE_SCIPY = importlib.util.find_spec("scipy") is not None
@@ -62,7 +40,9 @@ else:
     savgol_filter = None
 
 # Default uncertainties from IA equipment specifications
-DEFAULT_BURETTE_UNC = 0.05  # 50.0 cm^3 burette: ±0.05 cm^3 (total volume)
+DEFAULT_BURETTE_UNC = (
+    0.10  # 50.0 cm^3 burette: ±0.10 cm^3 (delivered volume uncertainty)
+)
 DEFAULT_BURETTE_READING_UNC = 0.02  # Individual burette graduations: ±0.02 cm^3
 DEFAULT_PH_METER_SYS = 0.3  # Vernier pH Sensor: ±0.3 pH units (measures activity)
 
@@ -71,12 +51,17 @@ def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """Prepare x-y arrays for interpolation by sorting and deduplicating.
 
     Args:
-        x: Independent-variable values (e.g., delivered volume).
-        y: Dependent-variable values (e.g., pH).
+        x (numpy.ndarray): Independent-variable values (cm^3).
+        y (numpy.ndarray): Dependent-variable values (pH units).
 
     Returns:
-        A tuple of ``(x, y)`` arrays with NaN values removed, sorted in
-        ascending x order, and deduplicated by averaging repeated x values.
+        tuple[numpy.ndarray, numpy.ndarray]: Cleaned ``(x, y)`` arrays with
+        finite pairs only, sorted by ``x``, and deduplicated by averaging
+        repeated ``x`` values.
+
+    Note:
+        This preprocessing avoids interpolation failures caused by NaNs,
+        unsorted points, or duplicate volume entries.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -104,16 +89,22 @@ def build_ph_interpolator(step_df: pd.DataFrame, method: str | None = None) -> D
     because it preserves monotonicity and avoids overshoot in sigmoidal data.
 
     Args:
-        step_df: DataFrame containing ``Volume (cm^3)`` and ``pH_step`` columns.
-        method: Interpolation method (``"pchip"`` or ``"linear"``). When
-            ``None``, PCHIP is selected if SciPy is available.
+        step_df (pandas.DataFrame): Step-level table containing
+            ``Volume (cm^3)`` and ``pH_step``.
+        method (str | None): Interpolation method (``\"pchip\"`` or ``\"linear\"``).
+            If ``None``, select PCHIP when SciPy is available.
 
     Returns:
-        A dictionary containing:
-            - ``method``: The interpolation method used.
-            - ``func``: Callable mapping volume to pH.
-            - ``deriv_func``: Callable for the first derivative (PCHIP only).
-            - ``x_min`` and ``x_max``: Bounds of the interpolation domain.
+        dict: Interpolator payload with callable ``func`` and domain metadata.
+        When PCHIP is used, include ``deriv_func`` for first-derivative
+        evaluation in units of pH per cm^3.
+
+    Note:
+        Prefer PCHIP for monotone, shape-preserving interpolation that avoids
+        spline overshoot near the equivalence region.
+
+    References:
+        Fritsch-Carlson monotone cubic interpolation (PCHIP).
     """
     if (
         step_df.empty
@@ -182,12 +173,20 @@ def generate_dense_curve(interpolator: Dict, n_points: int = 1200) -> pd.DataFra
     """Evaluate an interpolation model on a dense grid for plotting.
 
     Args:
-        interpolator: Dictionary returned by ``build_ph_interpolator``.
-        n_points: Number of points used to sample the interpolation domain.
+        interpolator (dict): Dictionary returned by ``build_ph_interpolator``.
+        n_points (int): Number of grid points over the interpolation domain.
 
     Returns:
-        A DataFrame with ``Volume (cm^3)`` and ``pH_interp`` columns. Returns an
-        empty DataFrame if interpolation bounds are unavailable.
+        pandas.DataFrame: Dense interpolation table with columns
+        ``Volume (cm^3)`` and ``pH_interp``. Return an empty table if bounds
+        are unavailable.
+
+    Note:
+        Use this dense table for smooth plotting and reproducible
+        half-equivalence pH lookup.
+
+    References:
+        Numerical interpolation sampling for curve diagnostics.
     """
     if "x_min" not in interpolator or "x_max" not in interpolator:
         return pd.DataFrame(columns=["Volume (cm^3)", "pH_interp"])
@@ -199,6 +198,22 @@ def generate_dense_curve(interpolator: Dict, n_points: int = 1200) -> pd.DataFra
 def _smooth_ph_for_derivative(
     step_df: pd.DataFrame, window: int = 7, poly: int = 2
 ) -> pd.DataFrame:
+    """Smooth stepwise pH values before derivative estimation.
+
+    Args:
+        step_df (pandas.DataFrame): Step-level table with ``pH_step`` and
+            ``Volume (cm^3)`` columns.
+        window (int): Smoothing window length in points. Use odd values.
+        poly (int): Polynomial order for Savitzky-Golay smoothing when enabled.
+
+    Returns:
+        pandas.DataFrame: Copy of ``step_df`` with added ``pH_smooth`` column
+        (pH units).
+
+    Note:
+        Fall back to rolling-mean smoothing when SciPy Savitzky-Golay is
+        unavailable or fails.
+    """
     if step_df.empty:
         return step_df
 
@@ -241,6 +256,18 @@ def _smooth_ph_for_derivative(
 
 
 def _ensure_derivative(step_df: pd.DataFrame, use_smooth: bool = True) -> pd.DataFrame:
+    """Ensure derivative column exists for equivalence-point detection.
+
+    Args:
+        step_df (pandas.DataFrame): Step-level dataframe containing volume and pH.
+        use_smooth (bool): Compute gradient from ``pH_smooth`` when available.
+
+    Returns:
+        pandas.DataFrame: Copy with ``dpH/dx`` column in pH per cm^3.
+
+    Note:
+        Compute derivatives via ``numpy.gradient`` on finite points only.
+    """
     if step_df.empty:
         return step_df
 
@@ -271,6 +298,22 @@ def _qc_equivalence(
     edge_buffer: int = 2,
     min_post_points: int = 3,
 ) -> Tuple[bool, str, Dict[str, float | int | bool]]:
+    """Run QC checks for a candidate equivalence-point peak index.
+
+    Args:
+        step_df (pandas.DataFrame): Step-level dataframe with ``pH_step``.
+        peak_index (int): Index of candidate derivative maximum.
+        edge_buffer (int): Minimum point distance from each edge.
+        min_post_points (int): Minimum number of points required after peak.
+
+    Returns:
+        tuple[bool, str, dict[str, float | int | bool]]: QC pass flag, reason
+        string, and diagnostics dictionary.
+
+    Note:
+        Steepness check uses local pH jump threshold
+        ``max(0.5, 0.10 * total_span)`` in pH units.
+    """
     n = int(len(step_df))
     reasons = []
     diagnostics: Dict[str, float | int | bool] = {
@@ -341,22 +384,31 @@ def detect_equivalence_point(
     At V_half, [CH₃COOH] ≈ [CH₃COO⁻], so pH ≈ pKa_app (Stage 1 estimate).
 
     Args:
-        step_df: Step-aggregated DataFrame containing ``Volume (cm^3)`` and
-            ``pH_step`` columns from Logger Pro exports.
-        interpolator: Optional interpolation dictionary from
-            ``build_ph_interpolator``. When provided, a derivative of the
-            interpolator is used for peak detection.
-        edge_buffer: Minimum number of points away from each data edge for
-            a valid equivalence point. Default: 2.
-        min_post_points: Minimum number of points required after the peak
-            to ensure adequate post-equivalence coverage. Default: 3.
-        gate_on_qc: Whether to discard the peak if QC checks fail. If True,
-            returns NaN for failed QC; if False, returns the peak regardless.
+        step_df (pandas.DataFrame): Step-aggregated table with
+            ``Volume (cm^3)`` and ``pH_step``.
+        interpolator (dict | None): Optional interpolation payload from
+            ``build_ph_interpolator``.
+        edge_buffer (int): Minimum point distance from each edge for a valid peak.
+        min_post_points (int): Minimum number of post-peak points.
+        gate_on_qc (bool): If ``True``, return ``NaN`` for QC-rejected peaks.
 
     Returns:
-        A dictionary with equivalence volume (cm^3), pH at equivalence, QC status,
-        and diagnostic metadata. If no valid equivalence point is found, the
-        returned values are NaN and QC is marked as failed.
+        dict: Equivalence result dictionary with ``eq_x`` (cm^3), ``eq_pH``
+        (pH units), detection method, QC status, and diagnostics.
+
+    Note:
+        IA correspondence: this function implements the endpoint-identification
+        step used to define equivalence before half-equivalence and buffer
+        analysis. The current implementation reports the derivative-peak
+        location from step or dense interpolation data. If an interval-midpoint
+        endpoint convention is required for final IA text, document that as a
+        reporting-layer convention and keep provenance explicit.
+
+        Failure modes include boundary peaks, weak local steepness, or multiple
+        comparable maxima; these are exposed through QC flags and warnings.
+
+    References:
+        First-derivative equivalence detection for acid-base titration curves.
     """
     if step_df.empty:
         return {
@@ -500,6 +552,25 @@ def _veq_uncertainty(
     burette_unc: float = DEFAULT_BURETTE_UNC,
     method: str = "worst_case",
 ) -> float:
+    """Estimate systematic uncertainty for equivalence volume.
+
+    Args:
+        step_df (pandas.DataFrame): Step-level dataframe containing
+            ``Volume (cm^3)``.
+        burette_unc (float): Delivered-volume uncertainty term (cm^3).
+        method (str): Uncertainty combination mode passed to
+            ``combine_uncertainties``.
+
+    Returns:
+        float: Estimated ``ΔVeq`` in cm^3.
+
+    Note:
+        IA correspondence: this function provides the software-side Veq
+        uncertainty term for propagated pKa uncertainty. The current algorithm
+        combines half the median step size with the burette delivered-volume
+        term. If interval-midpoint half-width uncertainty is reported in the IA
+        narrative, reconcile that convention in documentation and final tables.
+    """
     if step_df.empty or "Volume (cm^3)" not in step_df.columns:
         return float(burette_delivered_uncertainty(burette_unc))
 
@@ -536,17 +607,17 @@ def _pka_app_unc_from_buffer_fit(
     systematic limit. The result is a worst-case bound on the apparent pKa.
 
     Args:
-        step_df: Aggregated volume-step data.
-        veq: Equivalence volume in cm^3.
-        veq_unc: Systematic uncertainty in V_eq in cm^3.
-        buffer_fit: Output dictionary from ``fit_henderson_hasselbalch``.
-        ph_sys: Systematic pH meter uncertainty.
-        method: Uncertainty combination method (``"worst_case"`` or
-            ``"quadrature"``).
+        step_df (pandas.DataFrame): Step-aggregated run data.
+        veq (float): Equivalence volume in cm^3.
+        veq_unc (float): Equivalence-volume uncertainty in cm^3.
+        buffer_fit (dict): Output from ``fit_henderson_hasselbalch``.
+        ph_sys (float): pH systematic uncertainty term (pH units).
+        method (str): Uncertainty combination method (``\"worst_case\"`` or
+            ``\"quadrature\"``).
 
     Returns:
-        The combined systematic uncertainty in pKa_app. Returns NaN when
-        insufficient information is available.
+        float: Combined systematic uncertainty in apparent pKa (pH units).
+        Return ``nan`` if inputs are insufficient.
     """
     if step_df.empty or buffer_fit is None:
         return np.nan
@@ -611,25 +682,36 @@ def analyze_titration(
     buffer region (|pH - pKa_app,initial| ≤ 1) to refine pKa_app.
 
     Args:
-        df: Raw titration data with ``Volume (cm^3)`` and ``pH`` columns.
-        run_name: Human-readable identifier for the experimental run.
-        x_col: Column name for the independent variable.
-        burette_unc: Systematic burette reading uncertainty in cm^3.
-        ph_sys: Systematic pH meter uncertainty.
-        uncertainty_method: Uncertainty combination rule (``"worst_case"`` or
-            ``"quadrature"``).
-        smooth_for_derivative: Whether to apply Savitzky-Golay smoothing before
-            computing the derivative.
-        savgol_window: Window length for Savitzky-Golay smoothing.
-        polyorder: Polynomial order for Savitzky-Golay smoothing.
+        df (pandas.DataFrame): Raw run data with ``Volume (cm^3)`` and ``pH``.
+        run_name (str): Human-readable run identifier.
+        x_col (str): Independent-variable label stored in outputs.
+        burette_unc (float): Burette uncertainty contribution (cm^3) for ``ΔVeq``.
+        ph_sys (float): pH systematic contribution (pH units) for ``ΔpKa_app``.
+        uncertainty_method (str): Uncertainty combiner mode.
+        smooth_for_derivative (bool): Smooth pH before derivative computation.
+        savgol_window (int): Savitzky-Golay window size (points).
+        polyorder (int): Savitzky-Golay polynomial order.
 
     Returns:
-        A dictionary containing pKa_app, V_eq, uncertainties, and diagnostic
-        metadata required for plotting and reporting.
+        dict: Run-level analysis payload including ``veq_used`` (cm^3),
+        ``pka_app`` (dimensionless), uncertainty terms, and diagnostic
+        dataframes.
 
     Raises:
-        ValueError: If the dataset cannot support the two-stage protocol or if
-            the buffer-region regression fails.
+        ValueError: If data are insufficient for aggregation, half-equivalence
+            interpolation, or Stage-2 buffer-region regression.
+
+    Note:
+        IA correspondence: this is the primary single-run method pipeline used
+        to generate Veq, half-equivalence pH, regression-based apparent pKa,
+        and run-level uncertainty/QC metadata.
+
+        Common failure modes are insufficient valid step points, failed
+        half-equivalence interpolation, or too few valid buffer-region points
+        for regression; these raise ``ValueError``.
+
+    References:
+        Henderson-Hasselbalch regression and first-derivative equivalence detection.
     """
     step_df = aggregate_volume_steps(df)
     if step_df.empty:
@@ -678,9 +760,6 @@ def analyze_titration(
         method=uncertainty_method,
     )
 
-    veq_round, veq_unc_round = round_value_to_uncertainty(veq_used, veq_unc)
-    pka_round, pka_unc_round = round_value_to_uncertainty(pka_app, pka_unc)
-
     return {
         "run_name": run_name,
         "eq_x": eq_info.get("eq_x", np.nan),
@@ -690,15 +769,11 @@ def analyze_titration(
         "veq_used": veq_used,
         "veq_method": veq_method,
         "veq_uncertainty": veq_unc,
-        "veq_used_rounded": veq_round,
-        "veq_uncertainty_rounded": veq_unc_round,
         "half_eq_x": half_eq_x,
         "half_eq_pH": half_eq_pH,
         "pka_app": pka_app,
         "pka_method": pka_method,
         "pka_app_uncertainty": pka_unc,
-        "pka_app_rounded": pka_round,
-        "pka_app_uncertainty_rounded": pka_unc_round,
         "slope_reg": buffer_fit.get("slope_reg", np.nan),
         "r2_reg": buffer_fit.get("r2_reg", np.nan),
         "x_col": x_col,
@@ -719,17 +794,22 @@ def process_all_files(file_list):
     """Process multiple titration files with strict scientific validation.
 
     Args:
-        file_list: Iterable of ``(filepath, nacl_concentration)`` tuples.
-            Each filepath must point to a Logger Pro CSV export and each
-            concentration must be expressed in mol/L.
+        file_list (list[tuple[str, float]]): Sequence of
+            ``(filepath, nacl_concentration_M)`` pairs.
 
     Returns:
-        A list of analysis result dictionaries from ``analyze_titration`` with
-        ``nacl_conc`` and ``source_file`` fields attached.
+        list[dict]: Run-level analysis dictionaries with added
+        concentration and source-file provenance metadata.
 
     Raises:
-        ValueError: If any run lacks required volume data or if analysis fails.
-        FileNotFoundError: If any input file does not exist.
+        FileNotFoundError: If an input path does not exist.
+        ValueError: If a non-skipped run fails analysis.
+
+    Note:
+        Skip runs with fewer than 10 paired volume/pH rows.
+
+    References:
+        Batch processing for replicated titration conditions.
     """
     results = []
 
@@ -767,14 +847,20 @@ def create_results_dataframe(results):
     """Convert analysis results into a standardized results DataFrame.
 
     Args:
-        results: List of dictionaries returned by ``process_all_files``.
+        results (list[dict]): Run-level payloads from ``process_all_files``.
 
     Returns:
-        A DataFrame with standardized column names for pKa_app values,
-        uncertainties, equivalence diagnostics, and provenance metadata.
+        pandas.DataFrame: Standardized run table with chemistry outputs,
+        uncertainties, fit diagnostics, and provenance columns.
 
     Raises:
-        KeyError: If required result fields are missing from any entry.
+        KeyError: If required keys are missing from any result payload.
+
+    Note:
+        Keep standardized column names aligned with ``ResultColumns``.
+
+    References:
+        Internal reporting schema in ``salty.schema.ResultColumns``.
     """
     rows = []
     cols = ResultColumns()
@@ -801,16 +887,11 @@ def create_results_dataframe(results):
                 cols.pka_app: res.get("pka_app", np.nan),
                 "pKa_app method": res.get("pka_method", ""),
                 cols.pka_unc: res.get("pka_app_uncertainty", np.nan),
-                "Apparent pKa (rounded)": res.get("pka_app_rounded", np.nan),
-                "Apparent pKa uncertainty (rounded)": res.get(
-                    "pka_app_uncertainty_rounded", np.nan
-                ),
                 "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
                 "Veq (used)": res.get("veq_used", np.nan),
                 "Veq uncertainty (ΔVeq)": res.get("veq_uncertainty", np.nan),
-                "Veq (used, rounded)": res.get("veq_used_rounded", np.nan),
-                "Veq uncertainty (rounded)": res.get("veq_uncertainty_rounded", np.nan),
                 "Veq method": res.get("veq_method", ""),
+                "V_half (cm^3)": res.get("half_eq_x", np.nan),
                 "Slope (buffer fit)": res.get("slope_reg", np.nan),
                 "R2 (buffer fit)": res.get("r2_reg", np.nan),
                 "Source File": res.get("source_file", ""),
@@ -822,25 +903,40 @@ def create_results_dataframe(results):
 def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
     """Compute mean pKa_app per ionic strength with systematic uncertainty.
 
-    The statistical summary reports the mean pKa_app for each NaCl
-    concentration and expresses uncertainty as a systematic half-range
-    (max - min)/2 across trials. This is a worst-case estimate and is not a
-    statistical standard deviation.
+    The statistical summary reports mean pKa_app with explicit IB-style
+    uncertainty separation:
+    - Random uncertainty from repeats: ± 1/2(range)
+    - Instrument/propgated uncertainty: mean per-run propagated uncertainty
+    - Combined uncertainty: IB convention - max(random, instrument)
+
+    Following IB guidelines, the absolute uncertainty for processed data is
+    the larger of the random uncertainty and the instrumental uncertainty.
 
     Args:
-        results_df: DataFrame produced by ``create_results_dataframe``.
+        results_df (pandas.DataFrame): Run-level results table.
 
     Returns:
-        A DataFrame with mean pKa_app, systematic uncertainty, and trial counts.
+        pandas.DataFrame: Condition-level summary with mean apparent pKa,
+        random uncertainty, instrument uncertainty, combined uncertainty,
+        and replicate count.
 
     Raises:
-        KeyError: If required result columns are missing.
+        KeyError: If required columns are missing.
+
+    Note:
+        Use the reporting convention
+        ``combined_uncertainty = max(random, instrument)``.
+
+    References:
+        IB-style processed-data uncertainty convention for replicated trials.
     """
     if results_df.empty:
         return pd.DataFrame(
             columns=[
                 ResultColumns().nacl,
                 "Mean Apparent pKa",
+                "Random Uncertainty (±1/2 range)",
+                "Instrument Uncertainty (mean propagated)",
                 "Uncertainty",
                 "n",
             ]
@@ -862,13 +958,25 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
         mean_pka_app = float(np.mean(vals)) if n else np.nan
 
         if n >= 2:
-            unc = 0.5 * float(np.max(vals) - np.min(vals))
+            random_unc = 0.5 * float(np.max(vals) - np.min(vals))
         elif n == 1:
-            u = pd.to_numeric(group[cols.pka_unc], errors="coerce").to_numpy(
-                dtype=float
-            )
-            u = u[np.isfinite(u)]
-            unc = float(u[0]) if len(u) else np.nan
+            random_unc = 0.0
+        else:
+            random_unc = np.nan
+
+        inst_u = pd.to_numeric(group[cols.pka_unc], errors="coerce").to_numpy(
+            dtype=float
+        )
+        inst_u = inst_u[np.isfinite(inst_u)]
+        instrument_unc = float(np.mean(inst_u)) if len(inst_u) else np.nan
+
+        # IB convention: use the larger of random uncertainty and instrument uncertainty
+        if np.isfinite(random_unc) and np.isfinite(instrument_unc):
+            unc = float(max(random_unc, instrument_unc))
+        elif np.isfinite(instrument_unc):
+            unc = instrument_unc
+        elif np.isfinite(random_unc):
+            unc = random_unc
         else:
             unc = np.nan
 
@@ -876,6 +984,8 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
             {
                 cols.nacl: conc,
                 "Mean Apparent pKa": mean_pka_app,
+                "Random Uncertainty (±1/2 range)": random_unc,
+                "Instrument Uncertainty (mean propagated)": instrument_unc,
                 "Uncertainty": unc,
                 "n": n,
             }
@@ -898,14 +1008,23 @@ def build_summary_plot_data(
     ``plot_statistical_summary``.
 
     Args:
-        stats_df: Output of ``calculate_statistics``.
-        results_df: Output of ``create_results_dataframe``.
+        stats_df (pandas.DataFrame): Condition-level statistics table.
+        results_df (pandas.DataFrame): Run-level results table.
 
     Returns:
-        A dictionary of NumPy arrays and metadata suitable for plotting.
+        dict[str, object]: Validated plotting payload with arrays
+        (`x`, `y_mean`, `xerr`, `yerr`) and trend metadata (`fit`,
+        `slope_uncertainty`).
 
     Raises:
         KeyError: If required columns are missing.
+
+    Note:
+        Exclude individual points from summary payload by design; plot those in
+        run-level figures.
+
+    References:
+        Linear-trend diagnostics with endpoint-based slope bounds.
     """
     cols = ResultColumns()
     required_cols = [cols.nacl, "Mean Apparent pKa", "Uncertainty"]
@@ -934,36 +1053,9 @@ def build_summary_plot_data(
         dtype=float,
     )
 
+    # Individual runs are not included in the statistical summary plot
+    # They should be plotted separately in their own individual titration plots
     individual = []
-    conc_values = np.unique(x[np.isfinite(x)])
-    for conc in conc_values:
-        subset = results_df[results_df[cols.nacl] == conc]
-        if subset.empty:
-            continue
-
-        vals = pd.to_numeric(subset[cols.pka_app], errors="coerce").to_numpy(
-            dtype=float
-        )
-        mask = np.isfinite(vals)
-        vals = vals[mask]
-        if len(vals) == 0:
-            continue
-
-        n = len(vals)
-        jitter = 0.012 if n > 1 else 0.0
-        xs = conc + np.linspace(-jitter, jitter, n)
-
-        this_xerr = concentration_uncertainty(float(conc))
-
-        yerrs_ind = None
-        if cols.pka_unc in subset.columns:
-            tmp = pd.to_numeric(subset[cols.pka_unc], errors="coerce").to_numpy(
-                dtype=float
-            )[mask]
-            if np.any(np.isfinite(tmp)) and np.any(tmp > 0):
-                yerrs_ind = tmp
-
-        individual.append({"x": xs, "y": vals, "xerr": this_xerr, "yerr": yerrs_ind})
 
     fit = {"m": np.nan, "b": np.nan, "r2": np.nan}
     finite = np.isfinite(x) & np.isfinite(y_mean)
@@ -998,11 +1090,21 @@ def build_summary_plot_data(
 
 
 def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
-    """Print a human-readable summary of pKa_app statistics.
+    """Print a human-readable condition and run summary.
 
     Args:
-        stats_df: Summary statistics DataFrame.
-        results_df: Per-run results DataFrame.
+        stats_df (pandas.DataFrame): Condition-level summary statistics.
+        results_df (pandas.DataFrame): Run-level result records.
+
+    Returns:
+        None: Print a console audit summary.
+
+    Note:
+        Treat this as a convenience audit view; use CSV outputs as canonical
+        reporting artifacts.
+
+    References:
+        Human-readable analytical workflow audit summaries.
     """
     print("\nStatistical summary by NaCl concentration (IB-style):")
     if stats_df.empty:
@@ -1014,10 +1116,15 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
         conc = row[cols.nacl]
         mean = row["Mean Apparent pKa"]
         unc = row.get("Uncertainty")
+        rand_unc = row.get("Random Uncertainty (±1/2 range)")
+        inst_unc = row.get("Instrument Uncertainty (mean propagated)")
         n = int(row["n"])
 
         if pd.notna(unc):
-            print(f" - {conc} M: Mean apparent pKa = {mean:.3f} ± {unc:.3f} (n={n})")
+            print(
+                f" - {conc} M: Mean apparent pKa = {mean:.3f} ± {unc:.3f} "
+                f"(random={rand_unc:.3f}, instrument={inst_unc:.3f}, n={n})"
+            )
         else:
             base = f" - {conc} M: Mean apparent pKa = {mean:.3f}"
             extras = f" (uncertainty N/A) (n={n})"
@@ -1031,15 +1138,6 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
             veq = r.get("Veq (used)")
             method = r.get("Veq method", "")
             pka_method = r.get("pKa_app method", "")
-            if (
-                "Apparent pKa (rounded)" in r
-                and "Apparent pKa uncertainty (rounded)" in r
-                and pd.notna(r.get("Apparent pKa uncertainty (rounded)"))
-            ):
-                pka = r.get("Apparent pKa (rounded)")
-                pka_unc = r.get("Apparent pKa uncertainty (rounded)")
-            if "Veq (used, rounded)" in r and pd.notna(r.get("Veq (used, rounded)")):
-                veq = r.get("Veq (used, rounded)")
             if pd.notna(pka_unc):
                 base = f"     {r['Run']}: pKa_app={pka:.3f} ± {pka_unc:.3f}"
                 extras = f" ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"

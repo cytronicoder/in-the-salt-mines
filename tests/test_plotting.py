@@ -61,6 +61,12 @@ def test_plot_titration_curves(tmp_path):
     results = make_dummy_results()
     out = plot_titration_curves(results, output_dir=str(tmp_path))
     assert len(out) == 1
+    assert os.path.exists(out[0].replace(".png", ".pdf"))
+    assert os.path.exists(out[0].replace(".png", ".svg"))
+    png = out[0]
+    assert os.path.exists(png)
+    assert os.path.exists(png.replace(".png", ".pdf"))
+    assert os.path.exists(png.replace(".png", ".svg"))
 
 
 def test_plot_statistical_summary(tmp_path):
@@ -93,6 +99,10 @@ def test_plot_statistical_summary(tmp_path):
     out = plot_statistical_summary(summary, output_dir=str(tmp_path))
     assert out.endswith("statistical_summary.png")
     assert os.path.exists(out)
+    assert os.path.exists(out.replace(".png", ".pdf"))
+    assert os.path.exists(out.replace(".png", ".svg"))
+    assert os.path.exists(out.replace(".png", ".pdf"))
+    assert os.path.exists(out.replace(".png", ".svg"))
 
 
 def test_build_summary_plot_data_missing_results_df_columns():
