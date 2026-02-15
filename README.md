@@ -1,119 +1,66 @@
-### Ionic Strength Effects on Weak Acid Dissociation
+### Ionic Strength Effects on Ethanoic Acid Titration Behavior
 
-We investigate how ionic strength (via $\ce{NaCl}$ addition) affects the apparent dissociation constant of a weak acid measured by titration. This repository provides a workflow for extracting apparent $pK_{a,\mathrm{app}}$ values from weak acid-strong base titration data. The package is intended for classroom and research use.
+**Research question:** How does sodium chloride $\ce{NaCl}$ concentration change the apparent acid dissociation behavior of ethanoic acid $\ce{CH3COOH}$ during titration with sodium hydroxide $\ce{NaOH}$?
 
-#### Theory
+Experimental design summary:
 
-Weak acid dissociation in aqueous solution is described by:
+- Weak acid: ethanoic acid solution
+- Titrant: sodium hydroxide
+- Independent variable: sodium chloride concentration in prepared acid solutions
+- Main dependent variables: apparent pKa, equivalence volume, and model-fit diagnostics
+- Controlled conditions in analysis and QC: temperature band, initial pH consistency, and buffer-region model validity checks
 
-$$\ce{HA <=> H+ + A-}$$
+#### Reproduce the analysis
 
-Thermodynamic dissociation depends on activities, not concentrations:
+Inputs:
 
-$$K_a = \frac{a_{\ce{H+}} a_{\ce{A-}}}{a_{\ce{HA}}} = \frac{\gamma_{\ce{H+}}[\ce{H+}] \gamma_{\ce{A-}}[\ce{A-}]}{\gamma_{\ce{HA}}[\ce{HA}]}$$
+- Raw Logger Pro style CSV files in `data/raw/`.
+- Standardized copies written by the pipeline to `data/_standardized_raw/`.
 
-Measured concentrations therefore yield an _apparent_ dissociation constant:
-
-$$K_{a,\mathrm{app}} = \frac{[\ce{H+}][\ce{A-}]}{[\ce{HA}]} = K_a \frac{\gamma_{\ce{HA}}}{\gamma_{\ce{H+}}\gamma_{\ce{A-}}}$$
-
-Because activity coefficients $\gamma$ depend on ionic strength, $pK_{a,\mathrm{app}}$ values are operational and comparative, not thermodynamic constants. We interpret conclusions as trends across ionic strength conditions.
-
-#### Two-stage $pK_{a,\mathrm{app}}$ extraction
-
-1. Coarse estimate
-   - We identify the equivalence point $V_{\mathrm{eq}}$ from the maximum $\mathrm{d}pH/\mathrm{d}V$.
-   - We estimate $pK_{a,\mathrm{app}}$ as the interpolated pH at $V_{\mathrm{eq}}/2$.
-
-2. Refined regression
-   - We define the chemically valid buffer region as $|pH - pK_{a,\mathrm{app}}| \le 1$, corresponding to $0.1 \le [\ce{A-}]/[\ce{HA}] \le 10$.
-   - We fit the Henderson-Hasselbalch model within this region:
-
-   $$pH = m \log_{10} \left(\frac{V}{V_{\mathrm{eq}} - V}\right) + pK_{a,\mathrm{app}}$$
-
-   The intercept yields the refined apparent $pK_{a,\mathrm{app}}$. We report slope deviations from unity as diagnostics.
-
-#### Assumptions and limitations
-
-- $pK_{a,\mathrm{app}}$ values include ionic strength effects via activity coefficients and cannot be interpreted as thermodynamic pKa values without external corrections.
-- The Henderson-Hasselbalch model is applied only within the buffer region and is not assumed valid outside this window.
-- Trends across NaCl concentrations are the primary focus; we do not claim absolute acid strength.
-
-#### Reproducibility
-
-- Equipment limitations are propagated explicitly.
-- Trial-to-trial variability is reported as half-range (max - min)/2.
-- Reported uncertainties represent bounds, not statistical standard deviations.
-
-#### Installation
+Environment and run commands:
 
 ```bash
-git clone https://github.com/cytronicoder/in-the-salt-mines.git
-cd in-the-salt-mines
+python3 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+python3 main.py
 ```
 
-Development tools:
+Primary outputs:
 
-```bash
-pip install -r requirements-dev.txt
-pre-commit install
-```
+- `output/individual_results.csv`
+- `output/statistical_summary.csv`
+- `output/provenance_map.csv`
+- `output/iterations/all_valid/`
+- `output/iterations/qc_pass/`
+- `output/iterations/strict_fit/`
 
-#### Usage
+Reproducibility notes:
 
-```python
-from salty.analysis import (
-    analyze_titration,
-    build_summary_plot_data,
-    calculate_statistics,
-    create_results_dataframe,
-    process_all_files,
-)
-from salty.output import save_data_to_csv
-from salty.plotting import plot_statistical_summary, plot_titration_curves
+- Plot jitter and subsampling use fixed seeds in QC plotting utilities.
+- Iteration subset definitions are fixed in `main.py`.
+- Provenance linking is written to `output/provenance_map.csv`.
 
-files = [
-    ("data/ms besant go brr brr v2- 0.0m nacl.csv", 0.0),
-    ("data/ms besant go brr brr v2- 0.2m nacl.csv", 0.2),
-    ("data/ms besant go brr brr v2- 0.4m nacl.csv", 0.4),
-]
+#### Figures
 
-results = process_all_files(files)
-results_df = create_results_dataframe(results)
-stats_df = calculate_statistics(results_df)
+![H-H slope and R2 diagnostics](docs/images/hh_slope_and_r2_diagnostics.png)
+Caption: Validates that Henderson-Hasselbalch slope values remain chemically plausible and that fit quality is high enough for interpretation.
 
-summary = build_summary_plot_data(stats_df, results_df)
-plot_titration_curves(results, output_dir="output/with_raw", show_raw_pH=True)
-plot_statistical_summary(summary, output_dir="output")
+![H-H residuals analysis](docs/images/hh_residuals_analysis.png)
+Caption: Validates that residuals are pattern-light and centered, supporting linear-model use in the selected buffer region.
 
-save_data_to_csv(results_df, stats_df, output_dir="output")
-```
+![Apparent pKa precision by NaCl](docs/images/pka_precision_by_nacl.png)
+Caption: Validates repeatability of apparent pKa within each sodium chloride condition.
 
-#### Package Structure
+![Equivalence volumes by NaCl](docs/images/equivalence_volumes_by_nacl.png)
+Caption: Validates consistency and stoichiometric plausibility of detected equivalence volumes across conditions.
 
-```
-salty/
-├── analysis.py          ### Two-stage orchestration and summary preparation
-├── data_processing.py   ### CSV parsing, run extraction, step aggregation
-├── chemistry/           ### Henderson-Hasselbalch regression and buffer selection
-├── stats/               ### Regression and systematic uncertainty propagation
-├── plotting/            ### Figures rendered from validated outputs
-└── output.py            ### CSV export utilities
-```
+![Temperature control by NaCl](docs/images/temperature_control_by_nacl.png)
+Caption: Validates that run temperatures remain near the control band so temperature drift is unlikely to dominate pKa trends.
 
-#### Testing
-
-```bash
-pytest tests/ -v
-```
-
-#### Outputs
-
-- `individual_results.csv`: per-run $pK_{a,\mathrm{app}}$ values, uncertainties, $V_{\mathrm{eq}}$ diagnostics
-- `statistical_summary.csv`: mean $pK_{a,\mathrm{app}}$ per ionic strength with systematic uncertainty
-- `titration_*.png`: three-panel per-run figures
-- `statistical_summary.png`: $pK_{a,\mathrm{app}}$ vs. $\ce{NaCl}$ concentration trend plot
+![Buffer-region coverage](docs/images/buffer_region_coverage.png)
+Caption: Validates that enough buffer-region points are available to support stable regression estimates.
 
 #### License
 
-MIT License — see [LICENSE](LICENSE) for details.
+This repository is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
