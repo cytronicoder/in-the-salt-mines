@@ -37,7 +37,6 @@ def _strip_uncertainty_from_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     cleaned_columns = {}
     for col in df.columns:
-        # Remove uncertainty annotation pattern: (±X.XX units)
         cleaned = re.sub(r"\s*\(±[^)]+\)\s*$", "", col).strip()
         if cleaned != col:
             cleaned_columns[col] = cleaned
@@ -177,7 +176,6 @@ def extract_runs(df: pd.DataFrame) -> Dict[str, Dict]:
     References:
         Logger Pro multi-run CSV structure conventions.
     """
-    # Strip uncertainty annotations from column headers
     df = _strip_uncertainty_from_columns(df)
 
     runs: Dict[str, Dict] = {}

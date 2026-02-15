@@ -16,7 +16,6 @@ class TestIonicStrengthNaCl:
 
     def test_nacl_equals_concentration(self):
         """For NaCl (1:1 electrolyte), μ = [NaCl]."""
-        # Test all experimental concentrations from IA
         test_concentrations = [0.00, 0.20, 0.40, 0.60, 0.80]
         for conc in test_concentrations:
             mu = ionic_strength_nacl(conc)

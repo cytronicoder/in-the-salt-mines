@@ -458,27 +458,17 @@ def concentration_uncertainty(concentration: float) -> float:
     if concentration == 0.0 or not math.isfinite(concentration):
         return 0.0
 
-    # NaCl molar mass: 58.44 g mol^-1
     mw_nacl = 58.44
-    # Preparation volume: 100.0 cm^3 converted explicitly to dm^3
     volume_dm3 = cm3_to_dm3(100.0)
-    # Required mass of NaCl for target concentration
     mass = concentration * volume_dm3 * mw_nacl
 
-    # Uncertainty contributions from IA equipment table
-    delta_mass = 0.01  # Analytical balance: ±0.01 g
-    delta_volume = 0.0001  # 100 cm^3 volumetric flask: ±0.10 cm^3 = ±0.0001 dm^3
+    delta_mass = 0.01
+    delta_volume = 0.0001
 
-    # Check if mass is too small for reliable preparation
-    # When mass < delta_mass, relative uncertainty > 100% (physically unrealistic)
     if mass < delta_mass:
-        # For very low concentrations, the preparation method uncertainty
-        # dominates. Use worst-case: uncertainty equals the target concentration.
         return float(concentration)
 
-    # Relative uncertainties
     rel_unc_m = delta_mass / mass
     rel_unc_v = delta_volume / volume_dm3
-    # Worst-case combination: c = m/(M·V) → Δc/c = Δm/m + ΔV/V
     rel_unc_c = combine_uncertainties([rel_unc_m, rel_unc_v], method="worst_case")
     return float(concentration * rel_unc_c)

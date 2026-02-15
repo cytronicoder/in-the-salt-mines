@@ -39,12 +39,9 @@ if HAVE_SAVGOL:
 else:
     savgol_filter = None
 
-# Default uncertainties from IA equipment specifications
-DEFAULT_BURETTE_UNC = (
-    0.10  # 50.0 cm^3 burette: ±0.10 cm^3 (delivered volume uncertainty)
-)
-DEFAULT_BURETTE_READING_UNC = 0.02  # Individual burette graduations: ±0.02 cm^3
-DEFAULT_PH_METER_SYS = 0.3  # Vernier pH Sensor: ±0.3 pH units (measures activity)
+DEFAULT_BURETTE_UNC = 0.10
+DEFAULT_BURETTE_READING_UNC = 0.02
+DEFAULT_PH_METER_SYS = 0.3
 
 
 def _prepare_xy(x: np.ndarray, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -970,7 +967,6 @@ def calculate_statistics(results_df: pd.DataFrame) -> pd.DataFrame:
         inst_u = inst_u[np.isfinite(inst_u)]
         instrument_unc = float(np.mean(inst_u)) if len(inst_u) else np.nan
 
-        # IB convention: use the larger of random uncertainty and instrument uncertainty
         if np.isfinite(random_unc) and np.isfinite(instrument_unc):
             unc = float(max(random_unc, instrument_unc))
         elif np.isfinite(instrument_unc):
@@ -1053,8 +1049,6 @@ def build_summary_plot_data(
         dtype=float,
     )
 
-    # Individual runs are not included in the statistical summary plot
-    # They should be plotted separately in their own individual titration plots
     individual = []
 
     fit = {"m": np.nan, "b": np.nan, "r2": np.nan}

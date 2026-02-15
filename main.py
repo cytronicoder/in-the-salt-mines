@@ -250,7 +250,6 @@ def _generate_additional_diagnostic_outputs(
     if len(x) < 3:
         return
 
-    # Unweighted linear regression
     m_u, b_u = np.polyfit(x, y, 1)
     yhat_u = m_u * x + b_u
     resid_u = y - yhat_u
@@ -258,7 +257,6 @@ def _generate_additional_diagnostic_outputs(
     ss_tot = float(np.sum((y - np.mean(y)) ** 2))
     r2_u = float(1.0 - ss_res_u / ss_tot) if ss_tot > 0 else np.nan
 
-    # Weighted linear regression (if SEM available and finite)
     sem = mean_df["SEM pKa_app"].to_numpy(dtype=float)
     valid_w = np.isfinite(sem) & (sem > 0)
     if np.all(valid_w):
@@ -290,11 +288,10 @@ def _generate_additional_diagnostic_outputs(
         os.path.join(ia_dir, "regression_weighted_vs_unweighted.csv"), index=False
     )
 
-    # Influence diagnostics (means-level linear model)
     X = np.column_stack([np.ones_like(x), x])
     xtx_inv = np.linalg.inv(X.T @ X)
     h = np.array([X[i] @ xtx_inv @ X[i].T for i in range(len(x))], dtype=float)
-    p = 2  # intercept + slope
+    p = 2
     dof = max(len(x) - p, 1)
     mse = float(np.sum(resid_u**2) / dof)
     if mse > 0:
@@ -314,7 +311,6 @@ def _generate_additional_diagnostic_outputs(
     )
     diagnostics_df.to_csv(os.path.join(ia_dir, "diagnostic_metrics.csv"), index=False)
 
-    # Plot 1: Residuals vs IV
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.axhline(0.0, color="black", linewidth=1.0)
     ax.scatter(x, resid_u, color="black", zorder=3)
@@ -325,7 +321,6 @@ def _generate_additional_diagnostic_outputs(
     fig.savefig(os.path.join(ia_dir, "diag_residuals_vs_iv.png"), dpi=300)
     plt.close(fig)
 
-    # Plot 2: Residual histogram
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.hist(resid_u, bins=min(6, max(3, len(resid_u))), edgecolor="black")
     ax.set_xlabel("Residual (pKa_app)")
@@ -335,7 +330,6 @@ def _generate_additional_diagnostic_outputs(
     fig.savefig(os.path.join(ia_dir, "diag_residual_histogram.png"), dpi=300)
     plt.close(fig)
 
-    # Plot 3: Normal Q-Q plot
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     stats.probplot(resid_u, dist="norm", plot=ax)
     ax.set_title("Residual Normal Q-Q Plot")
@@ -343,7 +337,6 @@ def _generate_additional_diagnostic_outputs(
     fig.savefig(os.path.join(ia_dir, "diag_residual_qq.png"), dpi=300)
     plt.close(fig)
 
-    # Plot 4: Replicate jitter plot
     fig, ax = plt.subplots(figsize=(8.4, 5.0))
     rng = np.random.default_rng(42)
     for conc, group in repeats_df.groupby("NaCl Concentration (M)"):
@@ -360,7 +353,6 @@ def _generate_additional_diagnostic_outputs(
     fig.savefig(os.path.join(ia_dir, "diag_replicate_jitter.png"), dpi=300)
     plt.close(fig)
 
-    # Plot 5: SD vs IV
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.plot(
         mean_df["NaCl Concentration (M)"],
@@ -375,7 +367,6 @@ def _generate_additional_diagnostic_outputs(
     fig.savefig(os.path.join(ia_dir, "diag_sd_vs_iv.png"), dpi=300)
     plt.close(fig)
 
-    # Plot 6: Parity plot (measured mean vs predicted mean)
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.scatter(yhat_u, y, color="black")
     lo = float(min(np.min(yhat_u), np.min(y)))
@@ -388,7 +379,6 @@ def _generate_additional_diagnostic_outputs(
     fig.savefig(os.path.join(ia_dir, "diag_parity_measured_vs_predicted.png"), dpi=300)
     plt.close(fig)
 
-    # Plot 7: Cook's distance
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.stem(x, cooks_d, basefmt=" ")
     ax.axhline(4 / len(x), linestyle="--", color="gray", linewidth=1.2)
@@ -686,7 +676,6 @@ def main():
             os.path.join(ia_dir, "individual_results_rawfiles.csv"), index=False
         )
 
-        # Create supplemental IA summary (mean, SD, SEM, combined uncertainty)
         grouped_rows = []
         for conc, group in results_df.groupby("NaCl Concentration (M)"):
             pka_vals = pd.to_numeric(group["Apparent pKa"], errors="coerce")
@@ -741,7 +730,6 @@ def main():
         )
         _generate_additional_diagnostic_outputs(results_df, processed_df, ia_dir)
 
-        # Iterative analysis slices for IA robustness discussion
         iterations = [
             IterationSpec("all_valid", "All valid fitted runs"),
             IterationSpec("qc_pass", "Only runs with Equivalence QC Pass = True"),
@@ -799,7 +787,6 @@ def main():
             len(titration_plot_paths_with),
         )
 
-        # Generate quality control and validation plots
         qc_dir = os.path.join(output_dir, "qc")
         os.makedirs(qc_dir, exist_ok=True)
         logging.info("Generating QC and validation plots for method assessment...")

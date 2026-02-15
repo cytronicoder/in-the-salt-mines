@@ -71,7 +71,6 @@ def ionic_strength_nacl(nacl_concentration: float) -> float:
     if not math.isfinite(c):
         raise ValueError(f"NaCl concentration must be finite, got {c}")
 
-    # For 1:1 electrolyte: μ = [NaCl]
     return c
 
 

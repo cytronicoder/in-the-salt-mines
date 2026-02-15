@@ -1,66 +1,92 @@
 ### Ionic Strength Effects on Ethanoic Acid Titration Behavior
 
-**Research question:** How does sodium chloride $\ce{NaCl}$ concentration change the apparent acid dissociation behavior of ethanoic acid $\ce{CH3COOH}$ during titration with sodium hydroxide $\ce{NaOH}$?
+We investigated how sodium chloride concentration affects the apparent acid dissociation constant ($K_a$) of ethanoic acid. We processed potentiometric titration data, determined equivalence points via derivative analysis, and applied a linearized Henderson-Hasselbalch model to quantify equilibrium shifts under varying ionic strengths.
 
-Experimental design summary:
+[![Apparent pKa precision across ionic strengths](docs/images/pka_precision_by_nacl.png)](docs/images/pka_precision_by_nacl.png)
 
-- Weak acid: ethanoic acid solution
-- Titrant: sodium hydroxide
-- Independent variable: sodium chloride concentration in prepared acid solutions
-- Main dependent variables: apparent pKa, equivalence volume, and model-fit diagnostics
-- Controlled conditions in analysis and QC: temperature band, initial pH consistency, and buffer-region model validity checks
+> [!NOTE]
+> This repository contains the source code and data for my IBDP Chemistry SL Internal Assessment. It is not intended for public use, and should be used solely for educational purposes. However, you are free to explore the code and data for learning on your own.
 
-#### Reproduce the analysis
+#### Documentation
 
-Inputs:
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
-- Raw Logger Pro style CSV files in `data/raw/`.
-- Standardized copies written by the pipeline to `data/_standardized_raw/`.
+- **[Overview](docs/overview.md)** - Project scope and experimental design
+- **[Getting Started](docs/getting-started.md)** - Installation and usage instructions
+- **[Analysis Methods](docs/analysis-methods.md)** - Mathematical and statistical methods
+- **[API Reference](docs/api-reference.md)** - Function and class documentation
+- **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
 
-Environment and run commands:
+#### Installation
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python3 main.py
-```
+1. Clone the repository:
 
-Primary outputs:
+   ```bash
+   git clone https://github.com/cytronicoder/in-the-salt-mines.git
+   cd in-the-salt-mines
+   ```
 
-- `output/individual_results.csv`
-- `output/statistical_summary.csv`
-- `output/provenance_map.csv`
-- `output/iterations/all_valid/`
-- `output/iterations/qc_pass/`
-- `output/iterations/strict_fit/`
+2. Create a virtual environment (recommended):
 
-Reproducibility notes:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
 
-- Plot jitter and subsampling use fixed seeds in QC plotting utilities.
-- Iteration subset definitions are fixed in `main.py`.
-- Provenance linking is written to `output/provenance_map.csv`.
+3. Install dependencies:
 
-#### Figures
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-![H-H slope and R2 diagnostics](docs/images/hh_slope_and_r2_diagnostics.png)
-Caption: Validates that Henderson-Hasselbalch slope values remain chemically plausible and that fit quality is high enough for interpretation.
+#### Usage
 
-![H-H residuals analysis](docs/images/hh_residuals_analysis.png)
-Caption: Validates that residuals are pattern-light and centered, supporting linear-model use in the selected buffer region.
+1. **Standard Analysis:** Run the main pipeline to process all raw data, perform the regression analysis, and generate figures.
 
-![Apparent pKa precision by NaCl](docs/images/pka_precision_by_nacl.png)
-Caption: Validates repeatability of apparent pKa within each sodium chloride condition.
+   ```bash
+   python main.py
+   ```
 
-![Equivalence volumes by NaCl](docs/images/equivalence_volumes_by_nacl.png)
-Caption: Validates consistency and stoichiometric plausibility of detected equivalence volumes across conditions.
+2. **Verify Tests:** Ensure all analytical components are functioning correctly.
 
-![Temperature control by NaCl](docs/images/temperature_control_by_nacl.png)
-Caption: Validates that run temperatures remain near the control band so temperature drift is unlikely to dominate pKa trends.
+   ```bash
+   pytest
+   ```
 
-![Buffer-region coverage](docs/images/buffer_region_coverage.png)
-Caption: Validates that enough buffer-region points are available to support stable regression estimates.
+3. **Output Artifacts:** Check the `output/` directory for results:
+   - `individual_results.csv`: Per-run metrics ($pK_a$, $V_{eq}$, $R^2$, slope).
+   - `statistical_summary.csv`: Aggregated results by NaCl concentration.
+   - `provenance_map.csv`: file tracing.
+   - `iterations/`: Subsets of data (All Valid, QC Pass, Strict Fit).
+
+#### Analysis Methods
+
+The project implements a rigorous potentiometric analysis pipeline:
+
+- **Endpoint Detection:** Numerical differentiation (1st and 2nd derivatives) to locate $V_{eq}$
+- **Buffer Modeling:** Linearized Henderson-Hasselbalch regression ($\text{pH}$ vs. $\log(V/(V_{eq}-V))$)
+- **QC Filtering:** Automated rejection of runs with biochemical inconsistencies (e.g., $R^2 < 0.98$, slope deviations $> 20\%$)
+- **Uncertainty Propagation:** Worst-case error propagation for derived concentrations and $pK_a$
+
+See [Analysis Methods](docs/analysis-methods.md) for detailed mathematical descriptions.
+
+#### Data Format
+
+Input data is expected in the `data/raw/` directory. The pipeline supports Logger Pro style CSV exports containing at minimum:
+
+- `Volume` (or similar, autocreated to `Volume (cm^3)`)
+- `pH`
+- `Temperature` (optional but recommended)
+
+#### Requirements
+
+- Python 3.9+
+- numpy
+- pandas
+- matplotlib
+- scipy
+- seaborn
 
 #### License
 
-This repository is licensed under the MIT License. See [`LICENSE`](LICENSE) for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
