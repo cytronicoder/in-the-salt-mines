@@ -91,3 +91,15 @@ $$
 - **Volume Uncertainty:** $\pm 0.05$ cm$^3$ (burette reading error).
 
 Reported uncertainties represent the combined standard uncertainty of the mean for replicate trials.
+
+### Figure Conventions
+
+The IA publication figure set (`--figures ia`) follows a single nomenclature and styling standard across all panels:
+
+- Symbols: `V_eq`, `V_{1/2}`, `pH(V_{1/2})`, and `pK_a,app` (apparent pKa).
+- Independent-variable notation: `[NaCl]` (mol·dm^-3) and ionic strength `I` (mol·dm^-3, with `I=[NaCl]` for NaCl).
+- Unit conventions: pH is unitless; titrant volume is reported as cm^3.
+- Equivalence definition: `V_eq=(V_i+V_{i+1})/2` where `[V_i,V_{i+1}]` is the interval with maximum discrete `ΔpH/ΔV`; interval uncertainty is `σ(V_eq)=(V_{i+1}-V_i)/2`.
+- Half-equivalence extraction: `V_{1/2}=V_eq/2`, and `pH(V_{1/2})` is obtained by explicit linear interpolation between measured points bracketing `V_{1/2}`.
+- Multi-panel layouts use panel tags `(a)`, `(b)`, etc., with legends moved outside or into dedicated legend panels to avoid obscuring data.
+- Temperature and calibration QC runs are flagged visually rather than silently removed; excluded points (when used) are shown in gray and documented in captions.

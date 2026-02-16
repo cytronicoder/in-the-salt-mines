@@ -20,6 +20,7 @@ from matplotlib.patches import Patch
 from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 
 from ..schema import ResultColumns
+from .style import ALPHAS, add_panel_label, color_for_nacl, panel_tag
 from .titration_plots import save_figure_bundle, setup_plot_style
 
 _NACL_LEVELS = np.array([0.0, 0.2, 0.4, 0.6, 0.8], dtype=float)
@@ -757,7 +758,7 @@ def plot_hh_slope_diagnostics(
             alpha=0.90,
         )
 
-    ax1.axhspan(0.95, 1.05, color="0.92", alpha=1.0, zorder=0)
+    ax1.axhspan(0.95, 1.00, color="0.92", alpha=1.0, zorder=0)
     ax1.axhline(1.0, color="0.15", linestyle="--", linewidth=1.3, zorder=1)
     _set_nacl_axis(ax1)
     ax1.yaxis.set_major_formatter(FormatStrFormatter("%.3f"))
@@ -1296,6 +1297,224 @@ def plot_half_equivalence_check(
 
     out_path = os.path.join(output_dir, "half_equivalence_verification.png")
     save_figure_bundle(fig, out_path)
+    plt.close(fig)
+    return out_path
+
+
+def plot_temperature_and_calibration_qc(
+    results: List[Dict],
+    results_df: pd.DataFrame | None = None,
+    output_dir: str = "output/ia",
+    file_stem: str = "temperature_and_calibration_qc",
+    return_figure: bool = False,
+    return_metadata: bool = False,
+):
+    """Figure 5: temperature stability and calibration checkpoint diagnostics."""
+    setup_plot_style()
+    os.makedirs(output_dir, exist_ok=True)
+
+    fig, (ax_temp, ax_cal) = plt.subplots(1, 2, figsize=(12.8, 4.8))
+    add_panel_label(ax_temp, panel_tag(0))
+    add_panel_label(ax_cal, panel_tag(1))
+
+    temp_outlier_count = 0
+    total_runs_with_temp = 0
+
+    # Panel (a): run-level temperature summary (mean ± SD).
+    have_temperature = False
+    temp_x: List[float] = []
+    temp_mean: List[float] = []
+    temp_sd: List[float] = []
+    temp_colors: List[str] = []
+    for res in results:
+        nacl = float(res.get("nacl_conc", np.nan))
+        raw_df = res.get("data", pd.DataFrame())
+        if (
+            not isinstance(raw_df, pd.DataFrame)
+            or "Temperature (°C)" not in raw_df.columns
+        ):
+            continue
+        temp = pd.to_numeric(raw_df["Temperature (°C)"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        temp = temp[np.isfinite(temp)]
+        if len(temp) == 0:
+            continue
+
+        have_temperature = True
+        total_runs_with_temp += 1
+        t_mean = float(np.mean(temp))
+        t_sd = float(np.std(temp, ddof=1)) if len(temp) > 1 else 0.0
+        is_outlier = bool(t_mean < 25.0 or t_mean > 27.0)
+        if is_outlier:
+            temp_outlier_count += 1
+        color = color_for_nacl(nacl) if np.isfinite(nacl) else "0.4"
+        temp_x.append(float(total_runs_with_temp))
+        temp_mean.append(t_mean)
+        temp_sd.append(t_sd)
+        temp_colors.append("0.75" if is_outlier else color)
+
+    if have_temperature:
+        for xi, ym, ys, c in zip(temp_x, temp_mean, temp_sd, temp_colors):
+            ax_temp.errorbar(
+                [xi],
+                [ym],
+                yerr=[ys],
+                fmt="o",
+                markersize=6,
+                markerfacecolor=c,
+                markeredgecolor="black",
+                markeredgewidth=0.6,
+                ecolor=c,
+                elinewidth=1.0,
+                capsize=2.4,
+                alpha=ALPHAS["replicate"],
+                zorder=3,
+            )
+
+    ax_temp.axhspan(25.0, 27.0, color="0.93", zorder=0, label="26 ± 1 °C target band")
+    ax_temp.axhline(
+        26.0, color="0.2", linestyle="--", linewidth=1.2, label="Target 26 °C"
+    )
+    ax_temp.set_xlabel("Run order")
+    ax_temp.set_ylabel("Temperature / °C")
+    ax_temp.set_title("Temperature control")
+    ax_temp.grid(True, axis="y")
+    if have_temperature:
+        ax_temp.set_xlim(0.5, float(max(temp_x) + 0.5))
+
+    if not have_temperature:
+        ax_temp.text(
+            0.5,
+            0.5,
+            "Temperature data unavailable",
+            transform=ax_temp.transAxes,
+            ha="center",
+            va="center",
+            fontsize=10,
+        )
+
+    # Panel (b): calibration buffer checkpoint.
+    cal_orders: List[float] = []
+    cal_values: List[float] = []
+    cal_flags: List[bool] = []
+    cal_colors: List[str] = []
+
+    for order, res in enumerate(results, start=1):
+        nacl = float(res.get("nacl_conc", np.nan))
+        raw_df = res.get("data", pd.DataFrame())
+        value = np.nan
+        if isinstance(raw_df, pd.DataFrame):
+            for candidate in (
+                "Calibration pH 7.00",
+                "Calibration pH",
+                "Buffer Check pH",
+                "pH 7 Buffer",
+            ):
+                if candidate in raw_df.columns:
+                    vals = pd.to_numeric(raw_df[candidate], errors="coerce").to_numpy(
+                        dtype=float
+                    )
+                    vals = vals[np.isfinite(vals)]
+                    if len(vals):
+                        value = float(np.mean(vals))
+                        break
+        if np.isfinite(value):
+            cal_orders.append(float(order))
+            cal_values.append(value)
+            cal_flags.append(bool(abs(value - 7.0) > 0.05))
+            cal_colors.append(color_for_nacl(nacl) if np.isfinite(nacl) else "0.45")
+
+    # Fallback from summary table when calibration channel is absent.
+    if len(cal_values) == 0 and results_df is not None and not results_df.empty:
+        if "Run" in results_df.columns:
+            for order, _ in enumerate(results_df["Run"].tolist(), start=1):
+                cal_orders.append(float(order))
+                cal_values.append(np.nan)
+                cal_flags.append(False)
+                cal_colors.append("0.55")
+
+    ax_cal.axhspan(6.95, 7.05, color="0.93", zorder=0, label="Acceptable ±0.05 pH")
+    ax_cal.axhline(
+        7.0, color="0.2", linestyle="--", linewidth=1.2, label="pH 7.00 target"
+    )
+
+    if len(cal_values) > 0 and np.any(np.isfinite(cal_values)):
+        vals = np.array(cal_values, dtype=float)
+        x = np.array(cal_orders, dtype=float)
+        for xi, yi, flagged, c in zip(x, vals, cal_flags, cal_colors):
+            if not np.isfinite(yi):
+                continue
+            ax_cal.scatter(
+                [xi],
+                [yi],
+                s=42,
+                facecolor=c if not flagged else "white",
+                edgecolor="black" if flagged else "white",
+                linewidth=1.0 if flagged else 0.4,
+                zorder=3,
+            )
+            if flagged:
+                ax_cal.axvline(xi, color="0.45", linestyle=":", linewidth=0.9, zorder=1)
+        if np.any(cal_flags):
+            flagged_x = [xv for xv, fl in zip(x, cal_flags) if fl]
+            flagged_y = [yv for yv, fl in zip(vals, cal_flags) if fl]
+            ax_cal.scatter(
+                flagged_x,
+                flagged_y,
+                s=80,
+                facecolor="none",
+                edgecolor="black",
+                linewidth=1.0,
+                zorder=4,
+            )
+    else:
+        ax_cal.axis("off")
+
+    ax_cal.set_xlabel("Run order")
+    ax_cal.set_ylabel(r"Calibration buffer reading / $\mathrm{pH}$")
+    ax_cal.set_title("Calibration checkpoint")
+    ax_cal.grid(True, axis="y")
+
+    handles = [
+        Patch(facecolor="0.93", edgecolor="none", label="QC threshold band"),
+        Line2D([], [], color="0.2", linestyle="--", linewidth=1.2, label="Target"),
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="none",
+            markerfacecolor="white",
+            markeredgecolor="black",
+            label="Flagged run",
+        ),
+    ]
+    fig.legend(
+        handles=handles,
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.02),
+        ncol=3,
+        frameon=False,
+        fontsize=9,
+    )
+
+    fig.tight_layout()
+    out_path = save_figure_bundle(fig, os.path.join(output_dir, f"{file_stem}.png"))
+    metadata = {
+        "temperature_runs": int(total_runs_with_temp),
+        "temperature_outliers": int(temp_outlier_count),
+        "calibration_points": int(
+            np.sum(np.isfinite(np.array(cal_values, dtype=float)))
+        ),
+    }
+
+    if return_figure and return_metadata:
+        return out_path, fig, metadata
+    if return_figure:
+        return out_path, fig
+    if return_metadata:
+        plt.close(fig)
+        return out_path, metadata
     plt.close(fig)
     return out_path
 

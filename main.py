@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Command-line entry point."""
 
+import argparse
 import logging
 import os
 import re
@@ -25,6 +26,7 @@ from salty.data_processing import extract_runs, load_titration_data
 from salty.output import save_data_to_csv
 from salty.plotting import (
     generate_all_qc_plots,
+    generate_ia_figure_set,
     plot_statistical_summary,
     plot_titration_curves,
 )
@@ -32,6 +34,24 @@ from salty.reporting import add_formatted_reporting_columns
 
 EXACT_IV_LEVELS: tuple[float, ...] = (0.0, 0.2, 0.4, 0.6, 0.8)
 IV_TOL = 1e-9
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse CLI arguments."""
+    parser = argparse.ArgumentParser(description="Titration analysis pipeline")
+    parser.add_argument(
+        "--figures",
+        choices=("standard", "ia"),
+        default="standard",
+        help="Figure output profile. Use 'ia' for publication-ready Figure 1-5 set.",
+    )
+    parser.add_argument(
+        "--profile",
+        choices=("all_valid", "qc_pass", "strict_fit"),
+        default="all_valid",
+        help="Iteration profile used for output/iterations/<profile> IA figure export.",
+    )
+    return parser.parse_args(argv)
 
 
 def _configure_logging():
@@ -227,7 +247,9 @@ def _generate_additional_diagnostic_outputs(
         repeats_df,
         [("Apparent pKa", "Uncertainty in Apparent pKa")],
     )
-    repeats_df.to_csv(os.path.join(ia_dir, "dv_repeats_table.csv"), index=False)
+    repeats_df.to_csv(
+        os.path.join(ia_dir, "diagnostic_dv_repeats_table.csv"), index=False
+    )
 
     mean_df = (
         processed_df[
@@ -285,7 +307,8 @@ def _generate_additional_diagnostic_outputs(
         ]
     )
     regression_compare.to_csv(
-        os.path.join(ia_dir, "regression_weighted_vs_unweighted.csv"), index=False
+        os.path.join(ia_dir, "diagnostic_regression_weighted_vs_unweighted.csv"),
+        index=False,
     )
 
     X = np.column_stack([np.ones_like(x), x])
@@ -309,7 +332,9 @@ def _generate_additional_diagnostic_outputs(
             "Cooks distance": cooks_d,
         }
     )
-    diagnostics_df.to_csv(os.path.join(ia_dir, "diagnostic_metrics.csv"), index=False)
+    diagnostics_df.to_csv(
+        os.path.join(ia_dir, "diagnostic_diagnostic_metrics.csv"), index=False
+    )
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     ax.axhline(0.0, color="black", linewidth=1.0)
@@ -318,7 +343,7 @@ def _generate_additional_diagnostic_outputs(
     ax.set_ylabel("Residual (pKa_app)")
     ax.set_title("Residuals vs IV (means)")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_residuals_vs_iv.png"), dpi=300)
+    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_residuals_vs_iv.png"), dpi=300)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
@@ -327,14 +352,14 @@ def _generate_additional_diagnostic_outputs(
     ax.set_ylabel("Frequency")
     ax.set_title("Residual Histogram")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_residual_histogram.png"), dpi=300)
+    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_residual_histogram.png"), dpi=300)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     stats.probplot(resid_u, dist="norm", plot=ax)
     ax.set_title("Residual Normal Q-Q Plot")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_residual_qq.png"), dpi=300)
+    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_residual_qq.png"), dpi=300)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(8.4, 5.0))
@@ -350,7 +375,7 @@ def _generate_additional_diagnostic_outputs(
     ax.set_ylabel("Apparent pKa (replicates)")
     ax.set_title("Replicate Scatter by IV (precision)")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_replicate_jitter.png"), dpi=300)
+    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_replicate_jitter.png"), dpi=300)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
@@ -364,7 +389,7 @@ def _generate_additional_diagnostic_outputs(
     ax.set_ylabel("SD of pKa_app")
     ax.set_title("SD vs IV (heteroscedasticity check)")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_sd_vs_iv.png"), dpi=300)
+    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_sd_vs_iv.png"), dpi=300)
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
@@ -376,7 +401,10 @@ def _generate_additional_diagnostic_outputs(
     ax.set_ylabel("Measured mean pKa_app")
     ax.set_title("Parity Plot (means)")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_parity_measured_vs_predicted.png"), dpi=300)
+    fig.savefig(
+        os.path.join(ia_dir, "diagnostic_diag_parity_measured_vs_predicted.png"),
+        dpi=300,
+    )
     plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
@@ -386,7 +414,7 @@ def _generate_additional_diagnostic_outputs(
     ax.set_ylabel("Cook's distance")
     ax.set_title("Influence Diagnostics (Cook's distance)")
     fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diag_cooks_distance.png"), dpi=300)
+    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_cooks_distance.png"), dpi=300)
     plt.close(fig)
 
 
@@ -612,7 +640,7 @@ def _save_iteration_outputs(
     return diagnostics_df.iloc[0].to_dict()
 
 
-def main():
+def main(argv: list[str] | None = None):
     """Execute the end-to-end titration analysis pipeline.
 
     Returns:
@@ -620,6 +648,7 @@ def main():
         obtained.
     """
     try:
+        args = _parse_args(argv)
         _configure_logging()
         start_time = time.time()
         logging.info("Initializing titration analysis pipeline")
@@ -749,6 +778,39 @@ def main():
 
         iteration_df = pd.DataFrame(iteration_rows)
         iteration_df.to_csv(os.path.join(ia_dir, "iteration_overview.csv"), index=False)
+
+        if args.figures == "ia":
+            profile_lookup = {
+                "all_valid": "All valid fitted runs",
+                "qc_pass": "Only runs with Equivalence QC Pass = True",
+                "strict_fit": "QC pass + R2>=0.98 + |slope-1|<=0.20",
+            }
+            selected_spec = IterationSpec(args.profile, profile_lookup[args.profile])
+            ia_results, ia_results_df = _build_iteration_results(
+                results, results_df, selected_spec
+            )
+            if ia_results_df.empty:
+                logging.warning(
+                    "IA figure generation skipped: profile '%s' has no runs.",
+                    args.profile,
+                )
+            else:
+                generate_ia_figure_set(
+                    results=ia_results,
+                    results_df=ia_results_df,
+                    output_dir=ia_dir,
+                    iteration_output_dir=os.path.join(
+                        output_dir, "iterations", args.profile
+                    ),
+                    summary_csv_path=os.path.join(
+                        ia_dir, "processed_summary_with_sd.csv"
+                    ),
+                )
+                logging.info(
+                    "Generated IA Figure 1-5 set in %s and output/iterations/%s",
+                    ia_dir,
+                    args.profile,
+                )
 
         step_start = time.time()
         stats_df = calculate_statistics(results_df)
