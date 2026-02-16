@@ -19,18 +19,31 @@ from matplotlib.ticker import FormatStrFormatter, MaxNLocator
 
 from .style import (
     ALPHAS,
+    FONT_SIZES,
     LINE_WIDTHS,
-    MARKER_SIZES,
     MATH_LABELS,
     NACL_LEVELS,
+    add_info_box,
     add_panel_label,
     apply_rcparams,
+    apply_subplot_padding,
+    collect_legend_items,
     color_for_nacl,
     draw_equivalence_guides,
+    fig_size,
+    figure_base_path,
+    figure_legend,
+    finalize_figure,
     fmt_nacl,
+    new_figure,
     panel_tag,
+    place_fig_legend,
+    safe_annotate,
+    sanitize_filename,
+    save_figure_all_formats,
 )
 from .style import save_figure_bundle as _save_figure_bundle
+from .style import set_axis_labels, set_sensible_ticks
 
 
 def save_figure_bundle(fig: plt.Figure, png_path: str) -> str:
@@ -71,7 +84,7 @@ def setup_plot_style():
 
 
 def plot_titration_curves(
-    results: List[Dict], output_dir: str = "output", show_raw_pH: bool = False
+    results: List[Dict], output_dir: str | None = None, show_raw_pH: bool = False
 ) -> List[str]:
     """Render per-run three-panel titration diagnostic figures.
 
@@ -113,7 +126,8 @@ def plot_titration_curves(
             )
 
     setup_plot_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     out_paths: List[str] = []
 
@@ -139,7 +153,7 @@ def plot_titration_curves(
         fig, (ax1, ax2, ax3) = plt.subplots(
             1, 3, figsize=(17.5, 5.6), constrained_layout=True
         )
-        fig.suptitle(run_name, fontweight="bold", fontsize=20)
+        apply_subplot_padding(fig)
 
         if x_col not in raw_df.columns or "pH" not in raw_df.columns:
             plt.close(fig)
@@ -242,7 +256,6 @@ def plot_titration_curves(
                         ha="center",
                         va="top",
                         fontsize=11,
-                        bbox=dict(facecolor="white", edgecolor="0.85", pad=0.2),
                     )
                 if np.isfinite(ph_at_half):
                     ax1.text(
@@ -253,7 +266,6 @@ def plot_titration_curves(
                         ha="center",
                         va="top",
                         fontsize=11,
-                        bbox=dict(facecolor="white", edgecolor="0.85", pad=0.2),
                     )
 
         ax1.set_title("Titration curve", fontweight="bold")
@@ -270,8 +282,6 @@ def plot_titration_curves(
             xmin, xmax = float(np.min(xvals)), float(np.max(xvals))
             span = (xmax - xmin) if xmax != xmin else 1.0
             ax1.set_xlim(xmin - 0.03 * span, xmax + 0.03 * span)
-
-        ax1.legend(loc="best")
 
         if not step_df.empty and "dpH/dx" in step_df.columns:
             x_step = (
@@ -321,7 +331,6 @@ def plot_titration_curves(
                             ha="center",
                             va="top",
                             fontsize=11,
-                            bbox=dict(facecolor="white", edgecolor="0.85", pad=0.2),
                         )
                     if np.isfinite(ph_at_half):
                         ax2.text(
@@ -332,7 +341,6 @@ def plot_titration_curves(
                             ha="center",
                             va="top",
                             fontsize=11,
-                            bbox=dict(facecolor="white", edgecolor="0.85", pad=0.2),
                         )
 
                 ax2.axhline(0, color="black", linewidth=1.0, alpha=0.6)
@@ -346,8 +354,6 @@ def plot_titration_curves(
             ax2.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
         if len(xvals) > 0:
             ax2.set_xlim(ax1.get_xlim())
-
-        ax2.legend(loc="best")
 
         if not buffer_df.empty and {"log10_ratio", "pH_step", "pH_fit"}.issubset(
             buffer_df.columns
@@ -404,7 +410,6 @@ def plot_titration_curves(
                         ha="left",
                         va="top",
                         fontsize=12,
-                        bbox=dict(facecolor="white", edgecolor="0.85", pad=0.25),
                     )
 
         ax3.set_title("Henderson-Hasselbalch (apparent $pK_a$)", fontweight="bold")
@@ -412,15 +417,25 @@ def plot_titration_curves(
         ax3.set_ylabel(r"$\mathrm{pH}$")
         ax3.yaxis.set_major_locator(MaxNLocator(nbins=6))
         ax3.yaxis.set_major_formatter(FormatStrFormatter("%.2f"))
-        ax3.legend(loc="best")
+        handles, labels = collect_legend_items([ax1, ax2, ax3])
+        place_fig_legend(fig, handles, labels, where="bottom", ncol="auto")
 
         source_file = str(res.get("source_file", ""))
         source_base = os.path.splitext(source_file)[0] if source_file else ""
         combined_name = f"{run_name}_{source_base}" if source_base else run_name
         sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", combined_name).strip("_")
 
-        out_path = os.path.join(output_dir, f"titration_{sanitized}.png")
-        save_figure_bundle(fig, out_path)
+        nacl_token = sanitize_filename(
+            f"nacl-{float(res.get('nacl_conc', np.nan)):.1f}M"
+        )
+        run_token = sanitize_filename(run_name.replace(" ", "_"))
+        fig_key = f"titration_curve__{nacl_token}__run-{run_token}__{sanitized}"
+        if output_dir:
+            out_path = os.path.join(output_dir, f"{fig_key}.png")
+            save_figure_bundle(fig, out_path)
+        else:
+            base = figure_base_path(fig_key=fig_key, kind="individual")
+            out_path = str(save_figure_all_formats(fig, base))
         plt.close(fig)
         out_paths.append(out_path)
 
@@ -580,15 +595,18 @@ def _mean_sd(values: List[float]) -> tuple[float, float]:
 
 def plot_titration_overlays_by_nacl(
     results: List[Dict],
-    output_dir: str = "output/ia",
+    output_dir: str | None = None,
     file_stem: str = "titration_overlays_by_nacl",
     return_figure: bool = False,
 ):
     """Figure 1: pH vs NaOH volume overlays by [NaCl] with endpoint guides."""
     setup_plot_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
-    fig, axes = plt.subplots(2, 3, figsize=(14.2, 8.2), sharex=True, sharey=True)
+    fig, axes = new_figure(
+        2, 3, figsize=fig_size("panel_2x3"), sharex=True, sharey=True
+    )
     axes_flat = axes.flatten()
 
     all_vol: List[float] = []
@@ -615,7 +633,7 @@ def plot_titration_overlays_by_nacl(
                 va="center",
                 fontsize=11,
             )
-            ax.set_title(fmt_nacl(nacl))
+            ax.set_title(fmt_nacl(nacl), pad=10)
             ax.grid(True)
             continue
 
@@ -669,13 +687,22 @@ def plot_titration_overlays_by_nacl(
                 mean_curve,
                 color=color,
                 linewidth=LINE_WIDTHS["mean"],
-                alpha=0.95,
+                alpha=1.0,
             )
 
         veq_mean, veq_sd = _mean_sd(veq_vals)
         vhalf_mean, vhalf_sd = _mean_sd(vhalf_vals)
         ph_half_mean, ph_half_sd = _mean_sd(ph_half_vals)
-        draw_equivalence_guides(ax, veq_mean, veq_sd, vhalf_mean, vhalf_sd, color=color)
+        draw_equivalence_guides(
+            ax,
+            veq_mean,
+            veq_sd,
+            vhalf_mean,
+            vhalf_sd,
+            color=color,
+            show_veq_band=False,
+            show_vhalf_band=True,
+        )
 
         if np.isfinite(vhalf_mean) and np.isfinite(ph_half_mean):
             ax.errorbar(
@@ -693,29 +720,34 @@ def plot_titration_overlays_by_nacl(
             )
 
         t_mean, _ = _mean_sd(temp_vals)
-        ax.text(
-            0.98,
-            0.95,
-            f"n={len(veq_vals)}\nT≈{t_mean:.1f} °C"
+        info_txt = (
+            f"n={len(veq_vals)}; " + rf"$T\approx {t_mean:.1f}\,^\circ\mathrm{{C}}$"
             if np.isfinite(t_mean)
-            else f"n={len(veq_vals)}\nT≈n/a",
-            transform=ax.transAxes,
-            ha="right",
-            va="top",
-            fontsize=10,
-            bbox=dict(facecolor="white", edgecolor="0.85", pad=0.2),
+            else f"n={len(veq_vals)}; " + r"$T\approx\mathrm{n/a}$"
         )
-        ax.set_title(fmt_nacl(nacl))
-        ax.grid(True)
+        safe_annotate(
+            ax,
+            info_txt,
+            xy=(0.98, 0.05),
+            xytext=(0, 0),
+            textcoords="axes fraction",
+            ha="right",
+            va="bottom",
+            arrow=False,
+            fontsize=11,
+            color="0.30",
+        )
+        ax.set_title(fmt_nacl(nacl), pad=10, fontsize=FONT_SIZES["title"])
+        ax.grid(True, axis="y")
+        set_sensible_ticks(ax, x=5, y=5)
 
         if idx in (0, 3):
-            ax.set_ylabel(MATH_LABELS["ph"])
+            set_axis_labels(ax, y=MATH_LABELS["ph"])
         if idx >= 3:
-            ax.set_xlabel(MATH_LABELS["x_volume"])
+            set_axis_labels(ax, x=MATH_LABELS["x_volume"])
 
     legend_ax = axes_flat[5]
-    add_panel_label(legend_ax, panel_tag(5))
-    legend_ax.axis("off")
+    legend_ax.set_visible(False)
     legend_handles = [
         Line2D(
             [],
@@ -749,28 +781,21 @@ def plot_titration_overlays_by_nacl(
             markerfacecolor="0.2",
             markeredgecolor="black",
             markersize=6,
-            label=rf"{MATH_LABELS['ph_vhalf']} ± 1 SD",
+            label=r"$\mathrm{pH}(V_{1/2}) \pm 1\ \mathrm{SD}$",
         ),
-        Patch(facecolor="0.6", alpha=0.12, edgecolor="none", label="±1 SD band"),
+        Patch(
+            facecolor="0.6",
+            alpha=ALPHAS["sd_band"],
+            edgecolor="none",
+            label=r"$\pm 1\ \mathrm{SD}\ \mathrm{band}$",
+        ),
     ]
-    legend_ax.legend(
+    figure_legend(
+        fig,
         handles=legend_handles,
-        loc="upper left",
-        bbox_to_anchor=(0.0, 0.85),
-        frameon=False,
-    )
-    legend_ax.text(
-        0.02,
-        0.25,
-        (
-            f"Solid: {MATH_LABELS['veq']}\n"
-            f"Dashed: {MATH_LABELS['vhalf']}\n"
-            "Gray traces: temperature outliers"
-        ),
-        transform=legend_ax.transAxes,
-        ha="left",
-        va="top",
-        fontsize=10,
+        labels=[h.get_label() for h in legend_handles],
+        bbox_to_anchor=(0.5, 0.95),
+        ncol=3,
     )
 
     if all_vol:
@@ -784,8 +809,19 @@ def plot_titration_overlays_by_nacl(
         for ax in axes_flat[:5]:
             ax.set_ylim(ymin - 0.04 * span, ymax + 0.06 * span)
 
-    fig.tight_layout()
-    out_path = save_figure_bundle(fig, os.path.join(output_dir, f"{file_stem}.png"))
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="methods"))
+    out_path = str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            legend_height=0.12,
+            tight=True,
+            pad_inches=0.14,
+        )
+    )
     if return_figure:
         return out_path, fig
     plt.close(fig)
@@ -794,15 +830,18 @@ def plot_titration_overlays_by_nacl(
 
 def plot_derivative_equivalence_by_nacl(
     results: List[Dict],
-    output_dir: str = "output/ia",
+    output_dir: str | None = None,
     file_stem: str = "derivative_equivalence_by_nacl",
     return_figure: bool = False,
 ):
     """Figure 2: discrete-derivative endpoint identification by [NaCl]."""
     setup_plot_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
-    fig, axes = plt.subplots(2, 3, figsize=(14.2, 8.2), sharex=True, sharey=True)
+    fig, axes = new_figure(
+        2, 3, figsize=fig_size("panel_2x3"), sharex=True, sharey=True
+    )
     axes_flat = axes.flatten()
 
     all_mid: List[float] = []
@@ -829,7 +868,7 @@ def plot_derivative_equivalence_by_nacl(
                 va="center",
                 fontsize=11,
             )
-            ax.set_title(fmt_nacl(nacl))
+            ax.set_title(fmt_nacl(nacl), pad=10)
             ax.grid(True)
             continue
 
@@ -845,7 +884,6 @@ def plot_derivative_equivalence_by_nacl(
             metrics = _discrete_equivalence_metrics(step_df)
             mid = np.asarray(metrics["mid"], dtype=float)
             dp_dv = np.asarray(metrics["dp_dv"], dtype=float)
-            peak_idx = int(metrics["peak_idx"])
             if len(mid) == 0:
                 continue
 
@@ -858,22 +896,11 @@ def plot_derivative_equivalence_by_nacl(
                 mid[valid],
                 dp_dv[valid],
                 color=run_color,
-                linewidth=LINE_WIDTHS["replicate"],
-                alpha=ALPHAS["replicate"],
+                linewidth=0.9,
+                alpha=0.40,
             )
             mid_curves.append(mid[valid])
             deriv_curves.append(dp_dv[valid])
-
-            if 0 <= peak_idx < len(mid) and np.isfinite(dp_dv[peak_idx]):
-                ax.scatter(
-                    [mid[peak_idx]],
-                    [dp_dv[peak_idx]],
-                    s=MARKER_SIZES["diagnostic"],
-                    color=run_color,
-                    edgecolors="black",
-                    linewidths=0.7,
-                    zorder=4,
-                )
 
             all_mid.extend(mid[valid].tolist())
             all_deriv.extend(dp_dv[valid].tolist())
@@ -882,6 +909,15 @@ def plot_derivative_equivalence_by_nacl(
             vi_vals.append(float(metrics["vi"]))
             vip1_vals.append(float(metrics["vip1"]))
             sigma_vals.append(float(metrics["sigma_veq"]))
+            peak_idx = int(metrics["peak_idx"])
+            if 0 <= peak_idx < len(mid) and np.isfinite(dp_dv[peak_idx]):
+                ax.scatter(
+                    [mid[peak_idx]],
+                    [dp_dv[peak_idx]],
+                    s=20,
+                    color="black",
+                    zorder=5,
+                )
 
         if mid_curves:
             x_min = min(float(np.min(mv)) for mv in mid_curves if len(mv))
@@ -899,8 +935,8 @@ def plot_derivative_equivalence_by_nacl(
                     grid,
                     mean_curve,
                     color=color,
-                    linewidth=LINE_WIDTHS["mean"],
-                    alpha=0.95,
+                    linewidth=2.0,
+                    alpha=1.0,
                     zorder=3,
                 )
 
@@ -910,12 +946,10 @@ def plot_derivative_equivalence_by_nacl(
                 ax.axvspan(
                     veq_mean - veq_sd,
                     veq_mean + veq_sd,
-                    color=color,
-                    alpha=ALPHAS["sd_band"],
+                    color="0.8",
+                    alpha=0.12,
                 )
-            ax.axvline(
-                veq_mean, color=color, linewidth=LINE_WIDTHS["guide"], linestyle="-"
-            )
+            ax.axvline(veq_mean, color="0.10", linewidth=1.4, linestyle="--", zorder=6)
 
         vi_mean, _ = _mean_sd(vi_vals)
         vip1_mean, _ = _mean_sd(vip1_vals)
@@ -923,100 +957,107 @@ def plot_derivative_equivalence_by_nacl(
 
         y_min, y_max = ax.get_ylim()
         y_span = max(y_max - y_min, 1e-6)
-        y0 = y_max - 0.13 * y_span
-        y1 = y_max - 0.06 * y_span
+        yb = y_max - 0.18 * y_span
+        tick = 0.035 * y_span
         if np.isfinite(vi_mean) and np.isfinite(vip1_mean):
-            ax.plot(
-                [vi_mean, vi_mean, vip1_mean, vip1_mean],
-                [y0, y1, y1, y0],
-                color="0.25",
-                linewidth=1.1,
+            ax.vlines(
+                [vi_mean, vip1_mean],
+                ymin=yb,
+                ymax=yb + tick,
+                color="0.20",
+                lw=1.2,
+                zorder=7,
+            )
+            safe_annotate(
+                ax,
+                r"$[V_i,\,V_{i+1}]$",
+                xy=(0.5 * (vi_mean + vip1_mean), yb + tick),
+                xytext=(28, 12),
+                textcoords="offset points",
+                ha="left",
+                va="bottom",
+                arrow=True,
+                fontsize=11,
+                color="0.2",
             )
 
-        formula_txt = (
-            r"$V_{\mathrm{eq}}=\frac{V_i+V_{i+1}}{2}$"
-            "\n"
-            r"$\sigma(V_{\mathrm{eq}})=\frac{V_{i+1}-V_i}{2}$"
-        )
+        formula_txt = r"$\overline{V}_{\mathrm{eq}} = "
         if np.isfinite(veq_mean):
-            formula_txt += (
-                "\n"
-                + rf"$\overline{{V_{{\mathrm{{eq}}}}}}={veq_mean:.2f}\ \mathrm{{cm^3}}$"
-            )
+            formula_txt += rf"{veq_mean:.2f}\ \mathrm{{cm^3}}$"
+        else:
+            formula_txt += r"\mathrm{n/a}$"
         if np.isfinite(sigma_mean):
-            formula_txt += (
-                "\n" + rf"$\overline{{\sigma}}={sigma_mean:.2f}\ \mathrm{{cm^3}}$"
+            formula_txt += "\n" + (
+                rf"$\mathrm{{SD}}(V_{{\mathrm{{eq}}}}) = {sigma_mean:.2f}"
+                r"\ \mathrm{cm^3}$"
             )
-        ax.text(
-            0.025,
-            0.875,
-            formula_txt,
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontsize=9.5,
-        )
+        else:
+            formula_txt += "\n" + r"$\mathrm{SD}(V_{\mathrm{eq}})=\mathrm{n/a}$"
+        add_info_box(ax, formula_txt, loc="upper left", fontsize=11)
 
-        ax.set_title(fmt_nacl(nacl))
-        ax.grid(True)
+        ax.set_title(fmt_nacl(nacl), pad=10, fontsize=FONT_SIZES["title"])
+        ax.grid(True, axis="y")
+        set_sensible_ticks(ax, x=5, y=5)
         if idx in (0, 3):
-            ax.set_ylabel(MATH_LABELS["y_derivative"])
+            set_axis_labels(ax, y=MATH_LABELS["y_derivative"])
         if idx >= 3:
-            ax.set_xlabel(MATH_LABELS["x_volume"])
+            set_axis_labels(ax, x=MATH_LABELS["x_volume"])
 
     legend_ax = axes_flat[5]
-    add_panel_label(legend_ax, panel_tag(5))
-    legend_ax.axis("off")
-    legend_ax.legend(
-        handles=[
-            Line2D(
-                [],
-                [],
-                color="0.45",
-                linewidth=LINE_WIDTHS["replicate"],
-                alpha=ALPHAS["replicate"],
-                label="Replicate line",
-            ),
-            Line2D(
-                [],
-                [],
-                color="0.1",
-                linewidth=LINE_WIDTHS["mean"],
-                label="Condition mean line",
-            ),
-            Line2D(
-                [],
-                [],
-                marker="o",
-                linestyle="none",
-                color="0.2",
-                label="Max derivative point",
-            ),
-            Line2D(
-                [],
-                [],
-                color="0.2",
-                linestyle="-",
-                linewidth=LINE_WIDTHS["guide"],
-                label=rf"Mean {MATH_LABELS['veq']}",
-            ),
-            Patch(
-                facecolor="0.6",
-                alpha=ALPHAS["sd_band"],
-                edgecolor="none",
-                label="±1 SD band",
-            ),
-            Line2D(
-                [],
-                [],
-                color="0.25",
-                linewidth=1.1,
-                label=r"Steepest interval $[V_i, V_{i+1}]$",
-            ),
-        ],
-        loc="upper left",
-        bbox_to_anchor=(0.0, 0.85),
-        frameon=False,
+    legend_ax.set_visible(False)
+    legend_handles = [
+        Line2D(
+            [],
+            [],
+            color="0.65",
+            linewidth=0.9,
+            alpha=0.5,
+            label="Replicate line",
+        ),
+        Line2D(
+            [],
+            [],
+            color="#1f77b4",
+            linewidth=2.0,
+            label="Condition mean line",
+        ),
+        Line2D(
+            [],
+            [],
+            color="0.10",
+            linestyle="--",
+            linewidth=1.4,
+            label=rf"Mean {MATH_LABELS['veq']}",
+        ),
+        Patch(
+            facecolor="0.8",
+            alpha=0.12,
+            edgecolor="none",
+            label="±1 SD band",
+        ),
+        Line2D(
+            [],
+            [],
+            color="0.2",
+            linewidth=1.2,
+            label=r"Steepest interval $[V_i, V_{i+1}]$",
+        ),
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="none",
+            color="black",
+            markersize=5,
+            label="Peak marker",
+        ),
+    ]
+    place_fig_legend(
+        fig,
+        handles=legend_handles,
+        labels=[h.get_label() for h in legend_handles],
+        where="top",
+        ncol=3,
     )
 
     for ax in axes_flat[:5]:
@@ -1027,8 +1068,19 @@ def plot_derivative_equivalence_by_nacl(
         for ax in axes_flat[:5]:
             ax.set_ylim(ymin - 0.08 * span, ymax + 0.10 * span)
 
-    fig.tight_layout()
-    out_path = save_figure_bundle(fig, os.path.join(output_dir, f"{file_stem}.png"))
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="methods"))
+    out_path = str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            legend_height=0.14,
+            tight=True,
+            pad_inches=0.14,
+        )
+    )
     if return_figure:
         return out_path, fig
     plt.close(fig)

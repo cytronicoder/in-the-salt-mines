@@ -5,7 +5,10 @@
 - **[Analysis Methods](analysis-methods.md)** - Mathematical framework, regression models, and quality control protocols.
 - **[Overview](overview.md)** - Project scope, experimental design, and data pipeline architecture.
 - **[Troubleshooting](troubleshooting.md)** - Common issues, error messages, and solutions.
+- **[Figures Guide](figures.md)** - Output figure taxonomy and `docs/images` sync workflow.
 - **[Detailed Results](individual_results.md)** - Diagnostic plots and run-level analysis figures.
+
+Key rendered figure assets used in markdown pages are mirrored under `docs/images/`.
 
 ### Quick Links
 

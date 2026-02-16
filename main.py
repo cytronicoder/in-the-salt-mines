@@ -30,6 +30,16 @@ from salty.plotting import (
     plot_statistical_summary,
     plot_titration_curves,
 )
+from salty.plotting.style import (
+    LABEL_NACL,
+    apply_style,
+    clean_axis,
+    figure_base_path,
+    safe_set_lims,
+    save_figure_all_formats,
+    should_plot_qq,
+    warn_skipped_qq,
+)
 from salty.reporting import add_formatted_reporting_columns
 
 EXACT_IV_LEVELS: tuple[float, ...] = (0.0, 0.2, 0.4, 0.6, 0.8)
@@ -228,6 +238,12 @@ def _generate_additional_diagnostic_outputs(
         None: Write diagnostic CSV and PNG artifacts to ``ia_dir``.
     """
     os.makedirs(ia_dir, exist_ok=True)
+    apply_style(font_scale=1.0, context="paper")
+
+    def _save_diag_figure(fig_obj: plt.Figure, key: str) -> None:
+        save_figure_all_formats(
+            fig_obj, figure_base_path(fig_key=key, kind="diagnostics")
+        )
 
     repeats_cols = [
         "Run",
@@ -336,33 +352,47 @@ def _generate_additional_diagnostic_outputs(
         os.path.join(ia_dir, "diagnostic_diagnostic_metrics.csv"), index=False
     )
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
     ax.axhline(0.0, color="black", linewidth=1.0)
     ax.scatter(x, resid_u, color="black", zorder=3)
-    ax.set_xlabel("NaCl Concentration (M)")
-    ax.set_ylabel("Residual (pKa_app)")
-    ax.set_title("Residuals vs IV (means)")
-    fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_residuals_vs_iv.png"), dpi=300)
+    ax.set_xlabel(rf"${LABEL_NACL}$")
+    ax.set_ylabel(r"$\mathrm{Residual}\;/\;\mathrm{pH}$")
+    ax.set_title("Residuals vs ionic strength")
+    clean_axis(ax, grid_axis="both", nbins_x=5, nbins_y=5)
+    safe_set_lims(
+        ax,
+        x=(float(np.min(x)), float(np.max(x))),
+        y=(float(np.min(resid_u)), float(np.max(resid_u))),
+        pad_frac=0.08,
+    )
+    _save_diag_figure(fig, "diagnostic_residuals_vs_iv")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
     ax.hist(resid_u, bins=min(6, max(3, len(resid_u))), edgecolor="black")
-    ax.set_xlabel("Residual (pKa_app)")
+    ax.set_xlabel(r"$\mathrm{Residual}\;/\;\mathrm{pH}$")
     ax.set_ylabel("Frequency")
     ax.set_title("Residual Histogram")
-    fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_residual_histogram.png"), dpi=300)
+    clean_axis(ax, grid_axis="y", nbins_x=6, nbins_y=5)
+    _save_diag_figure(fig, "diagnostic_residual_histogram")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.8))
-    stats.probplot(resid_u, dist="norm", plot=ax)
-    ax.set_title("Residual Normal Q-Q Plot")
-    fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_residual_qq.png"), dpi=300)
-    plt.close(fig)
+    if should_plot_qq(len(resid_u), min_n=20):
+        fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
+        stats.probplot(resid_u, dist="norm", plot=ax)
+        ax.set_title("Residual normal Q-Q")
+        clean_axis(ax, grid_axis="both", nbins_x=6, nbins_y=6)
+        _save_diag_figure(fig, "diagnostic_residual_qq")
+        plt.close(fig)
+    else:
+        warn_skipped_qq(len(resid_u), min_n=20)
+        qq_base = figure_base_path(fig_key="diagnostic_residual_qq", kind="diagnostics")
+        for ext in ("png", "pdf", "svg"):
+            stale = qq_base.with_suffix(f".{ext}")
+            if stale.exists():
+                stale.unlink()
 
-    fig, ax = plt.subplots(figsize=(8.4, 5.0))
+    fig, ax = plt.subplots(figsize=(8.4, 5.0), constrained_layout=True)
     rng = np.random.default_rng(42)
     for conc, group in repeats_df.groupby("NaCl Concentration (M)"):
         vals = pd.to_numeric(group["Apparent pKa"], errors="coerce").to_numpy(
@@ -371,28 +401,28 @@ def _generate_additional_diagnostic_outputs(
         vals = vals[np.isfinite(vals)]
         jitter = rng.uniform(-0.012, 0.012, size=len(vals))
         ax.scatter(np.full(len(vals), conc) + jitter, vals, color="black", alpha=0.85)
-    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_xlabel(rf"${LABEL_NACL}$")
     ax.set_ylabel("Apparent pKa (replicates)")
     ax.set_title("Replicate Scatter by IV (precision)")
-    fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_replicate_jitter.png"), dpi=300)
+    clean_axis(ax, grid_axis="both", nbins_x=5, nbins_y=6)
+    _save_diag_figure(fig, "diagnostic_replicate_jitter")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
     ax.plot(
         mean_df["NaCl Concentration (M)"],
         mean_df["SD pKa_app"],
         marker="o",
         color="black",
     )
-    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_xlabel(rf"${LABEL_NACL}$")
     ax.set_ylabel("SD of pKa_app")
     ax.set_title("SD vs IV (heteroscedasticity check)")
-    fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_sd_vs_iv.png"), dpi=300)
+    clean_axis(ax, grid_axis="both", nbins_x=5, nbins_y=5)
+    _save_diag_figure(fig, "diagnostic_sd_vs_iv")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
     ax.scatter(yhat_u, y, color="black")
     lo = float(min(np.min(yhat_u), np.min(y)))
     hi = float(max(np.max(yhat_u), np.max(y)))
@@ -400,21 +430,18 @@ def _generate_additional_diagnostic_outputs(
     ax.set_xlabel("Predicted mean pKa_app")
     ax.set_ylabel("Measured mean pKa_app")
     ax.set_title("Parity Plot (means)")
-    fig.tight_layout()
-    fig.savefig(
-        os.path.join(ia_dir, "diagnostic_diag_parity_measured_vs_predicted.png"),
-        dpi=300,
-    )
+    clean_axis(ax, grid_axis="both", nbins_x=5, nbins_y=5)
+    _save_diag_figure(fig, "diagnostic_parity_measured_vs_predicted")
     plt.close(fig)
 
-    fig, ax = plt.subplots(figsize=(7.5, 4.8))
+    fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
     ax.stem(x, cooks_d, basefmt=" ")
     ax.axhline(4 / len(x), linestyle="--", color="gray", linewidth=1.2)
-    ax.set_xlabel("NaCl Concentration (M)")
+    ax.set_xlabel(rf"${LABEL_NACL}$")
     ax.set_ylabel("Cook's distance")
     ax.set_title("Influence Diagnostics (Cook's distance)")
-    fig.tight_layout()
-    fig.savefig(os.path.join(ia_dir, "diagnostic_diag_cooks_distance.png"), dpi=300)
+    clean_axis(ax, grid_axis="both", nbins_x=5, nbins_y=5)
+    _save_diag_figure(fig, "diagnostic_cooks_distance")
     plt.close(fig)
 
 
@@ -598,9 +625,9 @@ def _save_iteration_outputs(
     stats_df = calculate_statistics(iteration_results_df)
     summary = build_summary_plot_data(stats_df, iteration_results_df)
 
-    plot_titration_curves(iteration_results, out_dir, show_raw_pH=False)
-    summary_plot = plot_statistical_summary(summary, out_dir)
-    generate_all_qc_plots(iteration_results, iteration_results_df, out_dir)
+    plot_titration_curves(iteration_results, output_dir=None, show_raw_pH=False)
+    summary_plot = plot_statistical_summary(summary, output_dir=None)
+    generate_all_qc_plots(iteration_results, iteration_results_df, output_dir=None)
 
     save_data_to_csv(iteration_results_df, stats_df, out_dir)
 
@@ -798,19 +825,13 @@ def main(argv: list[str] | None = None):
                 generate_ia_figure_set(
                     results=ia_results,
                     results_df=ia_results_df,
-                    output_dir=ia_dir,
-                    iteration_output_dir=os.path.join(
-                        output_dir, "iterations", args.profile
-                    ),
+                    output_dir=None,
+                    iteration_output_dir=None,
                     summary_csv_path=os.path.join(
                         ia_dir, "processed_summary_with_sd.csv"
                     ),
                 )
-                logging.info(
-                    "Generated IA Figure 1-5 set in %s and output/iterations/%s",
-                    ia_dir,
-                    args.profile,
-                )
+                logging.info("Generated IA Figure 1-5 set in output/figures")
 
         step_start = time.time()
         stats_df = calculate_statistics(results_df)
@@ -831,30 +852,22 @@ def main(argv: list[str] | None = None):
             os.remove(png)
         logging.info("Removed %d existing PNG files", len(png_files))
 
-        with_raw_dir = os.path.join(output_dir, "with_raw")
-        without_raw_dir = os.path.join(output_dir, "without_raw")
-        os.makedirs(with_raw_dir, exist_ok=True)
-        os.makedirs(without_raw_dir, exist_ok=True)
-
         step_start = time.time()
         titration_plot_paths_with = plot_titration_curves(
-            results, with_raw_dir, show_raw_pH=True
+            results, output_dir=None, show_raw_pH=True
         )
-        plot_titration_curves(results, without_raw_dir, show_raw_pH=False)
+        plot_titration_curves(results, output_dir=None, show_raw_pH=False)
         summary = build_summary_plot_data(stats_df, results_df)
-        plot_statistical_summary(summary, with_raw_dir)
-        plot_statistical_summary(summary, without_raw_dir)
+        plot_statistical_summary(summary, output_dir=None)
         logging.info(
-            "Generated %d individual titration curve figures in each folder",
+            "Generated %d individual titration curve figures in output/figures",
             len(titration_plot_paths_with),
         )
 
-        qc_dir = os.path.join(output_dir, "qc")
-        os.makedirs(qc_dir, exist_ok=True)
         logging.info("Generating QC and validation plots for method assessment...")
-        qc_plot_paths = generate_all_qc_plots(results, results_df, qc_dir)
+        qc_plot_paths = generate_all_qc_plots(results, results_df, output_dir=None)
         logging.info(
-            "Generated %d QC/validation plots in %s", len(qc_plot_paths), qc_dir
+            "Generated %d QC/validation plots in output/figures", len(qc_plot_paths)
         )
 
         step_start = time.time()

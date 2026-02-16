@@ -11,8 +11,12 @@ from salty.analysis import build_summary_plot_data, create_results_dataframe
 from salty.plotting import (
     generate_ia_figure_set,
     plot_derivative_equivalence_by_nacl,
+    plot_initial_ph_by_concentration,
+    plot_initial_ph_scatter,
     plot_pka_app_vs_nacl_and_I,
     plot_statistical_summary,
+    plot_temperature_and_calibration_qc,
+    plot_temperature_boxplots,
     plot_titration_curves,
     plot_titration_overlays_by_nacl,
 )
@@ -264,20 +268,20 @@ def test_generate_ia_figure_set_outputs_and_captions(tmp_path):
         summary_csv_path=str(summary_path),
     )
 
-    stems = [
-        "titration_overlays_by_nacl",
-        "derivative_equivalence_by_nacl",
-        "pka_app_vs_nacl_and_I",
-        "hh_linearization_and_diagnostics",
-        "temperature_and_calibration_qc",
-    ]
-    for stem in stems:
+    stem_to_folder = {
+        "titration_overlays_by_nacl": "titration",
+        "derivative_equivalence_by_nacl": "methods_or_derivations",
+        "pka_app_vs_nacl_and_I": "summary",
+        "hh_linearization_and_diagnostics": "diagnostics",
+        "temperature_and_calibration_qc": "qc",
+    }
+    for stem, folder in stem_to_folder.items():
         for ext in ("png", "pdf", "svg"):
-            assert (ia_dir / f"{stem}.{ext}").exists()
-            assert (iter_dir / f"{stem}.{ext}").exists()
-        assert (ia_dir / f"{stem}_caption.txt").exists()
+            assert (ia_dir / folder / f"{stem}.{ext}").exists()
+            assert (iter_dir / folder / f"{stem}.{ext}").exists()
+        assert (ia_dir / "summary" / f"{stem}_caption.txt").exists()
 
-    caption = (ia_dir / "titration_overlays_by_nacl_caption.txt").read_text(
+    caption = (ia_dir / "summary" / "titration_overlays_by_nacl_caption.txt").read_text(
         encoding="utf-8"
     )
     assert "V_eq" in caption
@@ -337,7 +341,76 @@ def test_new_plot_axis_labels_match_spec(tmp_path):
         return_figure=True,
     )
     assert os.path.exists(p3)
+    assert len(fig3.axes) == 1
     assert fig3.axes[0].get_xlabel() == MATH_LABELS["x_nacl"]
-    assert fig3.axes[1].get_xlabel() == MATH_LABELS["x_ionic"]
-    assert MATH_LABELS["pka_app"] in fig3.axes[0].get_ylabel()
+    assert fig3.axes[0].get_ylabel() == MATH_LABELS["pka_app"]
     plt.close(fig3)
+
+
+def test_qc_and_summary_paths_and_units_default_routing():
+    """Ensure target figures route to output/figures/{qc,summary} with unit labels."""
+    results = make_ia_results()
+
+    p_initial = plot_initial_ph_by_concentration(results, output_dir=None)
+    p_scatter = plot_initial_ph_scatter(results, output_dir=None)
+    p_temp = plot_temperature_boxplots(results, output_dir=None)
+    p_qc = plot_temperature_and_calibration_qc(results, output_dir=None)
+
+    assert "/output/figures/summary/initial_ph_by_nacl.png" in os.path.abspath(
+        p_initial
+    )
+    assert (
+        "/output/figures/summary/initial_ph_scatter_with_errorbar.png"
+        in os.path.abspath(p_scatter)
+    )
+    assert "/output/figures/summary/temperature_control_by_nacl.png" in os.path.abspath(
+        p_temp
+    )
+    assert "/output/figures/qc/temperature_and_calibration_qc.png" in os.path.abspath(
+        p_qc
+    )
+
+
+def test_temperature_calibration_single_panel_when_missing_calibration():
+    """Do not generate a calibration subplot when calibration channels are missing."""
+    results = make_ia_results()
+    for row in results:
+        if "data" in row and isinstance(row["data"], pd.DataFrame):
+            row["data"] = row["data"].drop(
+                columns=[
+                    c
+                    for c in (
+                        "Calibration pH 7.00",
+                        "Calibration pH",
+                        "Buffer Check pH",
+                        "pH 7 Buffer",
+                    )
+                    if c in row["data"].columns
+                ],
+                errors="ignore",
+            )
+
+    _, fig = plot_temperature_and_calibration_qc(
+        results,
+        output_dir=None,
+        return_figure=True,
+    )
+    assert len(fig.axes) == 1
+    ylabel = fig.axes[0].get_ylabel()
+    assert "circ" in ylabel or "°C" in ylabel
+    plt.close(fig)
+
+
+def test_no_bbox_keyword_in_refactor_targets():
+    """Ensure the refactor target files do not use explicit bbox text boxes."""
+    repo_root = os.path.dirname(os.path.dirname(__file__))
+    targets = [
+        "salty/plotting/style.py",
+        "salty/plotting/qc_plots.py",
+        "salty/plotting/summary_plots.py",
+        "salty/plotting/ia_figures.py",
+    ]
+    for rel in targets:
+        with open(os.path.join(repo_root, rel), "r", encoding="utf-8") as handle:
+            src = handle.read()
+        assert "bbox=" not in src

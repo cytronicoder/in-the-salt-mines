@@ -14,18 +14,447 @@ import numpy as np
 import pandas as pd
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
-from matplotlib.patches import FancyBboxPatch, Patch
+from matplotlib.patches import Patch
 from matplotlib.ticker import FormatStrFormatter, MaxNLocator, MultipleLocator
 from scipy.stats import t as student_t
 
-from ..chemistry.ionic_strength import ionic_strength_nacl
 from ..schema import ResultColumns
 from ..stats.regression import linear_regression
-from .style import ALPHAS, LINE_WIDTHS, MARKER_SIZES, MATH_LABELS, color_for_nacl
+from .style import (
+    ALPHAS,
+    FONT_SIZES,
+    MARKER_SIZES,
+    MATH_LABELS,
+    NACL_LEVELS,
+    add_info_box,
+    add_panel_label,
+    color_for_nacl,
+    fig_size,
+    figure_base_path,
+    figure_legend,
+    finalize_figure,
+    marker_for_run,
+    new_figure,
+    place_fig_legend,
+    safe_annotate,
+    save_figure_all_formats,
+    set_axes_style,
+    set_axis_labels,
+    set_naCl_axis,
+    set_sensible_ticks,
+    set_ticks,
+)
 from .titration_plots import save_figure_bundle, setup_plot_style
 
 
-def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
+def _initial_ph_by_nacl(results: List[Dict]) -> dict[float, list[float]]:
+    """Collect initial pH values per NaCl concentration."""
+    grouped: dict[float, list[float]] = {}
+    for res in results:
+        nacl = float(res.get("nacl_conc", np.nan))
+        if not np.isfinite(nacl):
+            continue
+        raw_df = res.get("data", pd.DataFrame())
+        if not isinstance(raw_df, pd.DataFrame) or "pH" not in raw_df.columns:
+            continue
+        ph = pd.to_numeric(raw_df["pH"], errors="coerce").to_numpy(dtype=float)
+        ph = ph[np.isfinite(ph)]
+        if len(ph) == 0:
+            continue
+        grouped.setdefault(float(np.round(nacl, 1)), []).append(float(ph[0]))
+    return grouped
+
+
+def plot_initial_ph_by_nacl(
+    results: List[Dict],
+    output_dir: str | None = None,
+    file_stem: str = "initial_ph_by_nacl",
+) -> str:
+    """Plot boxplot + jittered initial pH values by NaCl concentration."""
+    setup_plot_style()
+    grouped = _initial_ph_by_nacl(results)
+    if not grouped:
+        return ""
+
+    concentrations = [c for c in (0.0, 0.2, 0.4, 0.6, 0.8) if c in grouped]
+    values = [grouped[c] for c in concentrations]
+    means = [float(np.mean(v)) for v in values]
+    rng = np.random.default_rng(11)
+
+    fig, ax = plt.subplots(figsize=(8.5, 4.8), constrained_layout=False)
+    ax.boxplot(
+        values,
+        positions=concentrations,
+        widths=0.10,
+        patch_artist=True,
+        showmeans=False,
+        medianprops={"color": "black", "linewidth": 1.2},
+        whiskerprops={"color": "black", "linewidth": 1.0},
+        capprops={"color": "black", "linewidth": 1.0},
+        boxprops={"facecolor": "0.90", "edgecolor": "black", "linewidth": 1.0},
+    )
+
+    for index, (nacl, vals) in enumerate(zip(concentrations, values)):
+        jitter = rng.normal(0.0, 0.008, size=len(vals))
+        ax.scatter(
+            nacl + jitter,
+            vals,
+            s=34,
+            alpha=0.72,
+            marker=marker_for_run(index),
+            facecolor="white",
+            edgecolor="black",
+            linewidth=0.8,
+            zorder=3,
+        )
+
+    ax.scatter(
+        concentrations,
+        means,
+        s=62,
+        marker="D",
+        facecolor="black",
+        edgecolor="white",
+        linewidth=0.6,
+        zorder=4,
+        label="Condition mean",
+    )
+
+    expected = 2.88
+    ax.axhline(
+        expected,
+        linestyle="--",
+        color="0.2",
+        linewidth=1.2,
+        label="Expected initial pH (reference)",
+    )
+
+    set_naCl_axis(ax)
+    set_axes_style(
+        ax,
+        xlabel=r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
+        ylabel=r"Initial\ pH\ (\mathrm{pH}_0)",
+        xticks=(0.0, 0.2, 0.4, 0.6, 0.8),
+        xfmt="%.1f",
+    )
+    ax.set_title("Initial pH vs [NaCl]", fontsize=FONT_SIZES["title"], pad=8)
+    ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
+
+    all_vals = np.asarray([item for row in values for item in row], dtype=float)
+    if len(all_vals):
+        ax.set_ylim(float(np.min(all_vals) - 0.05), float(np.max(all_vals) + 0.05))
+
+    handles = [
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="none",
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markersize=6,
+            label="Individual runs",
+        ),
+        Line2D(
+            [],
+            [],
+            marker="D",
+            linestyle="none",
+            markerfacecolor="black",
+            markeredgecolor="white",
+            markersize=7,
+            label="Condition mean",
+        ),
+        Line2D(
+            [],
+            [],
+            linestyle="--",
+            color="0.2",
+            linewidth=1.2,
+            label="Expected initial pH (reference)",
+        ),
+    ]
+    figure_legend(
+        fig,
+        handles,
+        [h.get_label() for h in handles],
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.95),
+        frameon=False,
+    )
+
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
+    out_path = str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            legend_height=0.10,
+            tight=True,
+            pad_inches=0.12,
+        )
+    )
+    plt.close(fig)
+    return out_path
+
+
+def plot_initial_ph_scatter_with_errorbar(
+    results: List[Dict],
+    output_dir: str | None = None,
+    file_stem: str = "initial_ph_scatter_with_errorbar",
+) -> str:
+    """Plot condition means ±1 SD of initial pH by NaCl concentration."""
+    setup_plot_style()
+    grouped = _initial_ph_by_nacl(results)
+    if not grouped:
+        return ""
+
+    concentrations = [c for c in (0.0, 0.2, 0.4, 0.6, 0.8) if c in grouped]
+    means = np.asarray([np.mean(grouped[c]) for c in concentrations], dtype=float)
+    sds = np.asarray(
+        [
+            np.std(grouped[c], ddof=1) if len(grouped[c]) > 1 else 0.0
+            for c in concentrations
+        ],
+        dtype=float,
+    )
+
+    fig, ax = plt.subplots(figsize=(7.5, 4.5), constrained_layout=False)
+    ax.errorbar(
+        concentrations,
+        means,
+        yerr=sds,
+        fmt="o",
+        markersize=7,
+        markerfacecolor="white",
+        markeredgecolor="black",
+        markeredgewidth=1.0,
+        ecolor="0.25",
+        elinewidth=1.2,
+        capsize=4,
+        label="Mean ± 1 SD",
+        zorder=3,
+    )
+
+    overall = float(np.mean(means))
+    ax.axhline(
+        overall,
+        linestyle="--",
+        color="0.35",
+        linewidth=1.1,
+        label="Overall mean (reference)",
+    )
+    ax.axhline(
+        2.88,
+        linestyle=":",
+        color="0.2",
+        linewidth=1.2,
+        label="Expected initial pH (reference)",
+    )
+
+    set_naCl_axis(ax)
+    set_axes_style(
+        ax,
+        xlabel=r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
+        ylabel=r"Initial\ pH\ (\mathrm{pH}_0)",
+        xticks=(0.0, 0.2, 0.4, 0.6, 0.8),
+        xfmt="%.1f",
+    )
+    ax.set_title("Initial pH (mean ± SD)", fontsize=FONT_SIZES["title"], pad=8)
+    ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
+
+    handles = [
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="none",
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markersize=7,
+            label="Mean ± 1 SD",
+        ),
+        Line2D(
+            [],
+            [],
+            linestyle="--",
+            color="0.35",
+            linewidth=1.1,
+            label="Overall mean (reference)",
+        ),
+        Line2D(
+            [],
+            [],
+            linestyle=":",
+            color="0.2",
+            linewidth=1.2,
+            label="Expected initial pH (reference)",
+        ),
+    ]
+    figure_legend(
+        fig,
+        handles,
+        [h.get_label() for h in handles],
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.95),
+        frameon=False,
+    )
+
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
+    out_path = str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            legend_height=0.10,
+            tight=True,
+            pad_inches=0.12,
+        )
+    )
+    plt.close(fig)
+    return out_path
+
+
+def plot_temperature_control_by_nacl(
+    results: List[Dict],
+    output_dir: str | None = None,
+    file_stem: str = "temperature_control_by_nacl",
+) -> str:
+    """Plot temperature control as boxplots plus random subsample scatter."""
+    setup_plot_style()
+    grouped: dict[float, list[float]] = {}
+    for res in results:
+        nacl = float(res.get("nacl_conc", np.nan))
+        if not np.isfinite(nacl):
+            continue
+        raw_df = res.get("data", pd.DataFrame())
+        if (
+            not isinstance(raw_df, pd.DataFrame)
+            or "Temperature (°C)" not in raw_df.columns
+        ):
+            continue
+        vals = pd.to_numeric(raw_df["Temperature (°C)"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        vals = vals[np.isfinite(vals)]
+        if len(vals) == 0:
+            continue
+        grouped.setdefault(float(np.round(nacl, 1)), []).extend(vals.tolist())
+
+    if not grouped:
+        return ""
+
+    concentrations = [c for c in (0.0, 0.2, 0.4, 0.6, 0.8) if c in grouped]
+    values = [grouped[c] for c in concentrations]
+    rng = np.random.default_rng(29)
+
+    fig, ax = plt.subplots(figsize=fig_size("wide"), constrained_layout=False)
+    ax.axhspan(25.0, 27.0, color="0.93", zorder=0)
+    ax.axhline(26.0, color="0.15", linestyle="--", linewidth=1.2)
+
+    ax.boxplot(
+        values,
+        positions=concentrations,
+        widths=0.10,
+        patch_artist=True,
+        showmeans=True,
+        meanprops={
+            "marker": "D",
+            "markerfacecolor": "white",
+            "markeredgecolor": "black",
+            "markersize": 6,
+        },
+        medianprops={"color": "black", "linewidth": 1.2},
+        whiskerprops={"color": "black", "linewidth": 1.0},
+        capprops={"color": "black", "linewidth": 1.0},
+        boxprops={"facecolor": "0.87", "edgecolor": "black", "linewidth": 1.0},
+    )
+
+    for nacl, vals in zip(concentrations, values):
+        arr = np.asarray(vals, dtype=float)
+        if len(arr) > 200:
+            idx = rng.choice(len(arr), size=200, replace=False)
+            arr = arr[idx]
+        jitter = rng.normal(0.0, 0.008, size=len(arr))
+        ax.scatter(
+            nacl + jitter,
+            arr,
+            s=14,
+            alpha=0.22,
+            marker="o",
+            facecolor="white",
+            edgecolor="black",
+            linewidth=0.5,
+            zorder=2,
+        )
+
+    set_naCl_axis(ax)
+    set_axes_style(
+        ax,
+        xlabel=r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
+        ylabel=r"Temperature\ /\ ^\circ\mathrm{C}",
+        xticks=(0.0, 0.2, 0.4, 0.6, 0.8),
+        xfmt="%.1f",
+    )
+    ax.set_title("Temperature control by [NaCl]", fontsize=FONT_SIZES["title"], pad=8)
+    safe_annotate(
+        ax,
+        "Random subsample for visibility",
+        xy=(0.98, 0.04),
+        xytext=(0, 0),
+        textcoords="axes fraction",
+        ha="right",
+        va="bottom",
+    )
+    ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
+
+    handles = [
+        Patch(facecolor="0.93", edgecolor="none", label="Tolerance band (±1.0 °C)"),
+        Line2D(
+            [], [], linestyle="--", color="0.15", linewidth=1.2, label="Target 26.0 °C"
+        ),
+        Line2D(
+            [],
+            [],
+            marker="o",
+            linestyle="none",
+            markerfacecolor="white",
+            markeredgecolor="black",
+            markersize=5,
+            label="Random subsample for visibility",
+        ),
+    ]
+
+    figure_legend(
+        fig,
+        handles,
+        [h.get_label() for h in handles],
+        loc="upper center",
+        ncol=3,
+        bbox_to_anchor=(0.5, 0.95),
+        frameon=False,
+    )
+
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
+    out_path = str(
+        finalize_figure(
+            fig, savepath=out_base, legend_height=0.10, tight=True, pad_inches=0.12
+        )
+    )
+    plt.close(fig)
+    return out_path
+
+
+def plot_statistical_summary(summary: Dict, output_dir: str | None = None) -> str:
     """Render the condition-level pKa summary figure.
 
     Args:
@@ -59,9 +488,9 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
         )
 
     setup_plot_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
-    title_fs = 16
     label_fs = 13
     tick_fs = 12
     legend_fs = 12
@@ -243,26 +672,9 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
     eq_line = r"Regression equation: $y = m\,x + b$"
     defs_line = r"$y \equiv pK_{a,\mathrm{app}},\; x \equiv [\mathrm{NaCl}]$"
 
-    # draw a single rounded box that contains the heading, equation and values
-    box_x, box_y = 0.01, 0.5
-    box_w, box_h = 1.5, 0.45
-    box = FancyBboxPatch(
-        (box_x, box_y),
-        box_w,
-        box_h,
-        transform=gutter_ax.transAxes,
-        boxstyle="round,pad=0.02",
-        facecolor="white",
-        edgecolor="black",
-        linewidth=1.0,
-        zorder=1,
-        clip_on=False,
-    )
-    gutter_ax.add_patch(box)
-
     gutter_ax.text(
         0.03,
-        0.95,
+        0.97,
         summary_heading,
         transform=gutter_ax.transAxes,
         ha="left",
@@ -274,7 +686,7 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
     )
     gutter_ax.text(
         0.03,
-        0.87,
+        0.88,
         eq_line,
         transform=gutter_ax.transAxes,
         ha="left",
@@ -285,7 +697,7 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
     )
     gutter_ax.text(
         0.03,
-        0.79,
+        0.80,
         defs_line,
         transform=gutter_ax.transAxes,
         ha="left",
@@ -296,7 +708,7 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
     )
     gutter_ax.text(
         0.03,
-        0.69,
+        0.70,
         summary_body,
         transform=gutter_ax.transAxes,
         ha="left",
@@ -320,25 +732,12 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
     line_proxy = Line2D([], [], color=line_color, linewidth=1.8)
     ci_proxy = Patch(facecolor=ci_color, edgecolor="black", linewidth=0.6, alpha=0.45)
 
-    gutter_ax.legend(
+    place_fig_legend(
+        fig,
         [data_proxy, line_proxy, ci_proxy],
         ["Mean ± propagated u (k=1)", "Linear fit", "95% CI (mean)"],
-        loc="upper left",
-        bbox_to_anchor=(-0.075, 0.35),
-        ncol=1,
-        frameon=False,
-        handlelength=1.8,
-        handletextpad=0.5,
-        labelspacing=0.8,
-        fontsize=legend_fs,
-    )
-
-    fig.suptitle(
-        "Apparent pKₐ of ethanoic acid vs [NaCl] (26 ± 1 °C)",
-        x=0.55,
-        y=0.9,
-        fontsize=title_fs,
-        fontweight="bold",
+        where="bottom",
+        ncol=3,
     )
 
     se_m = fit.get("se_m", np.nan)
@@ -385,12 +784,20 @@ def plot_statistical_summary(summary: Dict, output_dir: str = "output") -> str:
         f"two-sided p-value for slope = {p_txt}."
     )
 
-    caption_path = os.path.join(output_dir, "statistical_summary_caption.txt")
-    with open(caption_path, "w", encoding="utf-8") as fh:
-        fh.write(caption + "\n")
+    if output_dir:
+        caption_path = os.path.join(output_dir, "statistical_summary_caption.txt")
+        with open(caption_path, "w", encoding="utf-8") as fh:
+            fh.write(caption + "\n")
 
-    out_path = os.path.join(output_dir, "statistical_summary.png")
-    save_figure_bundle(fig, out_path)
+        out_path = os.path.join(output_dir, "statistical_summary.png")
+        save_figure_bundle(fig, out_path)
+    else:
+        out_path = str(
+            save_figure_all_formats(
+                fig,
+                figure_base_path("statistical_summary", kind="supplemental"),
+            )
+        )
     plt.close(fig)
     return out_path
 
@@ -485,9 +892,9 @@ def _fit_line_with_ci(
         "slope": slope,
         "intercept": intercept,
         "slope_ci_low": slope - slope_ci_half if np.isfinite(slope_ci_half) else np.nan,
-        "slope_ci_high": slope + slope_ci_half
-        if np.isfinite(slope_ci_half)
-        else np.nan,
+        "slope_ci_high": (
+            slope + slope_ci_half if np.isfinite(slope_ci_half) else np.nan
+        ),
         "x_grid": x_grid,
         "y_hat": y_hat,
         "ci_low": y_hat - ci_half,
@@ -614,14 +1021,15 @@ def plot_pka_app_vs_nacl_and_I(
     results_df: pd.DataFrame | None = None,
     results: List[Dict] | None = None,
     summary_csv_path: str = "output/ia/processed_summary_with_sd.csv",
-    output_dir: str = "output/ia",
+    output_dir: str | None = None,
     file_stem: str = "pka_app_vs_nacl_and_I",
     return_figure: bool = False,
     return_metadata: bool = False,
 ):
-    """Figure 3: apparent pKa trends against [NaCl] and ionic strength."""
+    """Figure 3: apparent pKa trend against NaCl concentration."""
     setup_plot_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
     cols = ResultColumns()
     rep_df, cond_df = _load_results_for_pka_plot(results_df, summary_csv_path)
@@ -630,13 +1038,11 @@ def plot_pka_app_vs_nacl_and_I(
 
     outlier_map = _temperature_outlier_map(results)
 
-    fig, axes = plt.subplots(1, 2, figsize=(12.4, 4.8), sharey=True)
-    left_ax, right_ax = axes
+    fig, left_ax = new_figure(1, 1, figsize=fig_size("single"))
     rng = np.random.default_rng(42)
 
-    for ax in axes:
-        ax.grid(True, axis="y")
-        ax.set_ylabel(rf"{MATH_LABELS['pka_app']}\;(\approx\mathrm{{pH}}(V_{{1/2}}))")
+    left_ax.grid(True, axis="y")
+    left_ax.set_ylabel(MATH_LABELS["pka_app"])
 
     if not rep_df.empty and {cols.nacl, cols.pka_app}.issubset(rep_df.columns):
         for _, row in rep_df.iterrows():
@@ -698,7 +1104,7 @@ def plot_pka_app_vs_nacl_and_I(
         color="black",
         markerfacecolor="white",
         markeredgecolor="black",
-        markersize=7,
+        markersize=8,
         capsize=3,
         linewidth=1.1,
         zorder=4,
@@ -726,141 +1132,51 @@ def plot_pka_app_vs_nacl_and_I(
             fit_info["x_grid"],
             fit_info["y_hat"],
             color="#0B4F8C",
-            linewidth=LINE_WIDTHS["mean"],
+            linewidth=1.5,
             zorder=2,
         )
 
     slope = float(fit_info.get("slope", np.nan))
     slope_low = float(fit_info.get("slope_ci_low", np.nan))
     slope_high = float(fit_info.get("slope_ci_high", np.nan))
-    left_ax.text(
-        0.02,
-        0.05,
-        (
-            f"slope={slope:.4f}\n95% CI [{slope_low:.4f}, {slope_high:.4f}]"
-            if np.isfinite(slope) and np.isfinite(slope_low) and np.isfinite(slope_high)
-            else "slope=n/a"
-        ),
-        transform=left_ax.transAxes,
-        ha="left",
-        va="bottom",
-        fontsize=10,
+    slope_units = r"\mathrm{pH\cdot(mol\ dm^{-3})^{-1}}"
+    slope_text = (
+        rf"$\mathrm{{Linear\ fit\ slope}}={slope:.4f}\ {slope_units}$"
+        + "\n"
+        + rf"$95\%\ \mathrm{{CI}}\ [{slope_low:.4f},\ {slope_high:.4f}]$"
+        if np.isfinite(slope) and np.isfinite(slope_low) and np.isfinite(slope_high)
+        else r"$\mathrm{Linear\ fit\ slope}=\mathrm{n/a}$"
     )
-    left_ax.set_xlabel(MATH_LABELS["x_nacl"])
+    add_info_box(left_ax, slope_text, loc="upper right", fontsize=11)
+    set_axis_labels(left_ax, MATH_LABELS["x_nacl"], MATH_LABELS["pka_app"])
 
-    ionic_available = True
-    try:
-        x_i = np.array([ionic_strength_nacl(float(v)) for v in x_mean], dtype=float)
-    except (TypeError, ValueError, ZeroDivisionError):
-        ionic_available = False
-        x_i = np.array([], dtype=float)
+    y_mask = np.isfinite(y_mean)
+    yerr_plot = np.where(np.isfinite(y_ci), y_ci, 0.0)
+    yerr_mask = np.isfinite(yerr_plot)
+    valid_bounds = y_mask & yerr_mask
+    if np.any(valid_bounds):
+        y_lower = y_mean[valid_bounds] - yerr_plot[valid_bounds]
+        y_upper = y_mean[valid_bounds] + yerr_plot[valid_bounds]
+        span = max(float(np.max(y_upper) - np.min(y_lower)), 1e-6)
+        pad = max(0.03, 0.10 * span)
+        left_ax.set_ylim(float(np.min(y_lower) - pad), float(np.max(y_upper) + pad))
 
-    if ionic_available and len(x_i) == len(x_mean):
-        right_ax.errorbar(
-            x_i,
-            y_mean,
-            yerr=np.where(np.isfinite(y_ci), y_ci, 0.0),
-            fmt="o",
-            color="black",
-            markerfacecolor="white",
-            markeredgecolor="black",
-            markersize=6,
-            capsize=3,
-            linewidth=1.1,
-            zorder=4,
-        )
-        if len(fit_x):
-            try:
-                fit_x_i = np.array(
-                    [ionic_strength_nacl(float(v)) for v in fit_x], dtype=float
-                )
-            except (TypeError, ValueError, ZeroDivisionError):
-                fit_x_i = np.array([], dtype=float)
-        else:
-            fit_x_i = np.array([], dtype=float)
-        if len(fit_x_i) == len(fit_y):
-            fit_i = _fit_line_with_ci(
-                fit_x_i[fit_mask], fit_y[fit_mask], fit_se[fit_mask]
-            )
-        else:
-            fit_i = _fit_line_with_ci(
-                np.array([], dtype=float),
-                np.array([], dtype=float),
-                None,
-            )
-        if len(fit_i["x_grid"]) > 0:
-            right_ax.fill_between(
-                fit_i["x_grid"],
-                fit_i["ci_low"],
-                fit_i["ci_high"],
-                color="#CDECCF",
-                alpha=ALPHAS["ci_band"],
-                zorder=1,
-            )
-            right_ax.plot(
-                fit_i["x_grid"],
-                fit_i["y_hat"],
-                color="#256D1B",
-                linewidth=LINE_WIDTHS["mean"],
-                zorder=2,
-            )
-        s2 = float(fit_i.get("slope", np.nan))
-        s2_lo = float(fit_i.get("slope_ci_low", np.nan))
-        s2_hi = float(fit_i.get("slope_ci_high", np.nan))
-        right_ax.text(
-            0.02,
-            0.05,
-            (
-                f"slope={s2:.4f}\n95% CI [{s2_lo:.4f}, {s2_hi:.4f}]"
-                if np.isfinite(s2) and np.isfinite(s2_lo) and np.isfinite(s2_hi)
-                else "slope=n/a"
-            ),
-            transform=right_ax.transAxes,
-            ha="left",
-            va="bottom",
-            fontsize=10,
-        )
+    set_ticks(left_ax, xstep=0.2, ystep=0.1, yfmt="%.1f")
+    set_sensible_ticks(left_ax, x=5, y=5)
+    add_panel_label(left_ax, "(a)", loc="upper left", pad=0.03)
+
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
     else:
-        right_ax.text(
-            0.5,
-            0.5,
-            "I not available",
-            transform=right_ax.transAxes,
-            ha="center",
-            va="center",
-            fontsize=10,
+        out_base = str(figure_base_path(fig_key=file_stem, kind="main_results"))
+    out_path = str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            tight=True,
+            pad_inches=0.14,
         )
-
-    right_ax.set_xlabel(MATH_LABELS["x_ionic"])
-
-    # Match requested panel labels.
-    left_ax.text(
-        0.01,
-        1.05,
-        "(a)",
-        transform=left_ax.transAxes,
-        ha="left",
-        va="top",
-        fontweight="bold",
     )
-    right_ax.text(
-        0.01,
-        1.05,
-        "(b)",
-        transform=right_ax.transAxes,
-        ha="left",
-        va="top",
-        fontweight="bold",
-    )
-
-    y_all = y_mean[np.isfinite(y_mean)]
-    if len(y_all):
-        pad = max(0.03, 0.08 * (float(np.max(y_all)) - float(np.min(y_all)) + 1e-6))
-        for ax in axes:
-            ax.set_ylim(float(np.min(y_all)) - pad, float(np.max(y_all)) + pad)
-
-    fig.tight_layout()
-    out_path = save_figure_bundle(fig, os.path.join(output_dir, f"{file_stem}.png"))
 
     metadata = {
         "fit_basis": str(fit_info.get("fit_basis", "condition means")),
@@ -918,31 +1234,25 @@ def _hh_points_for_run(res: Dict) -> tuple[np.ndarray, np.ndarray]:
 
 def plot_hh_linearization_and_diagnostics(
     results: List[Dict],
-    output_dir: str = "output/ia",
+    output_dir: str | None = None,
     file_stem: str = "hh_linearization_and_diagnostics",
     return_figure: bool = False,
 ):
-    """Figure 4: HH exemplars, residual diagnostics, slope CI, and RMSE by [NaCl]."""
+    """Figure 4: HH linearization, residual diagnostics, slope CI, and RMSE.
+
+    Curves are grouped by NaCl concentration.
+    """
     setup_plot_style()
-    os.makedirs(output_dir, exist_ok=True)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
-    fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.4))
+    fig, axes = new_figure(2, 2, figsize=fig_size("panel_2x2"))
     ax_a, ax_b, ax_c, ax_d = axes.flatten()
-
-    # Representative runs: exemplar conditions only (0.0 M and 0.8 M).
-    exemplar_runs: List[Dict] = []
-    for nacl in (0.0, 0.8):
-        candidates = [
-            r
-            for r in results
-            if np.isfinite(float(r.get("nacl_conc", np.nan)))
-            and abs(float(r.get("nacl_conc", np.nan)) - nacl) < 1e-9
-        ]
-        if candidates:
-            exemplar_runs.append(candidates[0])
 
     slope_rows: List[tuple[float, float]] = []
     rmse_rows: List[tuple[float, float]] = []
+    hh_x_values: List[float] = []
+    hh_by_nacl: dict[float, dict[str, list[float]]] = {}
 
     for res in results:
         nacl = float(res.get("nacl_conc", np.nan))
@@ -965,51 +1275,132 @@ def plot_hh_linearization_and_diagnostics(
                 if np.isfinite(rmse):
                     rmse_rows.append((nacl, rmse))
 
-    for res in exemplar_runs:
+    for res in results:
         nacl = float(res.get("nacl_conc", np.nan))
-        x, y = _hh_points_for_run(res)
+        if not np.isfinite(nacl):
+            continue
+        step_df = res.get("step_data", pd.DataFrame())
+        if step_df.empty or "Volume (cm^3)" not in step_df.columns:
+            continue
+        p_col = "pH_step" if "pH_step" in step_df.columns else "pH"
+        if p_col not in step_df.columns:
+            continue
+        veq = float(res.get("veq_used", np.nan))
+        if not np.isfinite(veq) or veq <= 0:
+            continue
+
+        v = pd.to_numeric(step_df["Volume (cm^3)"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        ph = pd.to_numeric(step_df[p_col], errors="coerce").to_numpy(dtype=float)
+        ratio = v / (veq - v)
+        valid = np.isfinite(v) & np.isfinite(ph) & np.isfinite(ratio) & (ratio > 0)
+        if not np.any(valid):
+            continue
+
+        x_all = np.log10(ratio[valid])
+        y_all = ph[valid]
+        included = (ratio[valid] > 0.1) & (ratio[valid] < 10.0)
+        x = x_all[included]
+        y = y_all[included]
+        x_ex = x_all[~included]
+        y_ex = y_all[~included]
         if len(x) < 3:
             continue
+        hh_x_values.extend(x.tolist())
         reg = linear_regression(x, y, min_points=3)
         color = color_for_nacl(nacl)
         order = np.argsort(x)
         y_fit = reg["m"] * x + reg["b"]
         residuals = y - y_fit
 
-        ax_a.scatter(
-            x,
-            y,
-            s=MARKER_SIZES["replicate"],
-            marker="o",
-            facecolor=color,
-            edgecolor="white",
-            linewidth=0.6,
-            alpha=ALPHAS["replicate"],
-            label=f"{nacl:.1f} M",
+        bucket = hh_by_nacl.setdefault(
+            float(np.round(nacl, 1)),
+            {"x": [], "y": [], "x_ex": [], "y_ex": [], "resid": []},
         )
-        ax_a.plot(x[order], y_fit[order], color=color, linewidth=LINE_WIDTHS["mean"])
+        bucket["x"].extend(x.tolist())
+        bucket["y"].extend(y.tolist())
+        bucket["x_ex"].extend(x_ex.tolist())
+        bucket["y_ex"].extend(y_ex.tolist())
+        bucket["resid"].extend(residuals.tolist())
 
-        ax_b.scatter(
-            x,
-            residuals,
-            s=MARKER_SIZES["replicate"],
-            marker="o",
-            facecolor=color,
-            edgecolor="white",
-            linewidth=0.6,
-            alpha=ALPHAS["replicate"],
-            label=f"{nacl:.1f} M",
-        )
+        ax_a.plot(x[order], y_fit[order], color=color, linewidth=1.4, alpha=0.9)
 
-    ax_a.set_xlabel(MATH_LABELS["hh_x"])
-    ax_a.set_ylabel(MATH_LABELS["ph"])
-    ax_a.legend(frameon=False, loc="best")
+    legend_handles = []
+    for nacl in sorted(hh_by_nacl):
+        color = color_for_nacl(nacl)
+        x_arr = np.asarray(hh_by_nacl[nacl]["x"], dtype=float)
+        y_arr = np.asarray(hh_by_nacl[nacl]["y"], dtype=float)
+        x_ex_arr = np.asarray(hh_by_nacl[nacl]["x_ex"], dtype=float)
+        y_ex_arr = np.asarray(hh_by_nacl[nacl]["y_ex"], dtype=float)
+        resid_arr = np.asarray(hh_by_nacl[nacl]["resid"], dtype=float)
+
+        if len(x_ex_arr):
+            ax_a.scatter(
+                x_ex_arr,
+                y_ex_arr,
+                s=max(12, int(0.65 * MARKER_SIZES["replicate"])),
+                marker="o",
+                facecolor="none",
+                edgecolor="0.75",
+                linewidth=0.8,
+                alpha=0.3,
+            )
+
+        if len(x_arr):
+            ax_a.scatter(
+                x_arr,
+                y_arr,
+                s=MARKER_SIZES["replicate"],
+                marker="o",
+                facecolor=color,
+                edgecolor="white",
+                linewidth=0.5,
+                alpha=0.45,
+            )
+            ax_b.scatter(
+                x_arr,
+                resid_arr,
+                s=MARKER_SIZES["replicate"],
+                marker="o",
+                facecolor=color,
+                edgecolor="white",
+                linewidth=0.5,
+                alpha=0.45,
+            )
+            legend_handles.append(
+                Line2D(
+                    [],
+                    [],
+                    marker="o",
+                    linestyle="none",
+                    markerfacecolor=color,
+                    markeredgecolor="white",
+                    markersize=6,
+                    label=rf"$[\mathrm{{NaCl}}]={nacl:.1f}\ \mathrm{{mol\,dm^{{-3}}}}$",
+                )
+            )
+
+    set_axis_labels(ax_a, MATH_LABELS["hh_x"], MATH_LABELS["ph"])
+    set_ticks(ax_a, xstep=0.5, ystep=0.2)
+    ax_a.set_title("HH linearization with fit lines")
     ax_a.grid(True)
 
     ax_b.axhline(0.0, color="0.25", linestyle="--", linewidth=1.1)
-    ax_b.set_xlabel(MATH_LABELS["hh_x"])
-    ax_b.set_ylabel(MATH_LABELS["residual_ph"])
+    set_axis_labels(ax_b, MATH_LABELS["hh_x"], MATH_LABELS["residual_ph"])
+    set_ticks(ax_b, xstep=0.5, ystep=0.05)
+    ax_b.set_title("Residuals vs log term")
     ax_b.grid(True)
+
+    ax_a.xaxis.set_major_locator(MultipleLocator(0.5))
+    ax_b.xaxis.set_major_locator(MultipleLocator(0.5))
+
+    if hh_x_values:
+        hh_min = float(np.min(hh_x_values))
+        hh_max = float(np.max(hh_x_values))
+        hh_pad = max(0.05, 0.05 * (hh_max - hh_min))
+        ax_a.set_xlim(hh_min - hh_pad, hh_max + hh_pad)
+        ax_b.set_xlim(hh_min - hh_pad, hh_max + hh_pad)
 
     slope_df = pd.DataFrame(slope_rows, columns=["nacl", "slope"])
     if not slope_df.empty:
@@ -1042,25 +1433,38 @@ def plot_hh_linearization_and_diagnostics(
             color="black",
             markerfacecolor="white",
             markeredgecolor="black",
+            elinewidth=0.9,
             capsize=3,
-            zorder=4,
+            zorder=2,
         )
+        for nacl_val, grp in slope_df.groupby("nacl"):
+            vals = grp["slope"].to_numpy(dtype=float)
+            vals = vals[np.isfinite(vals)]
+            if len(vals):
+                y_top = float(np.max(vals))
+                ax_c.text(
+                    float(nacl_val),
+                    y_top + 0.02,
+                    rf"$n={len(vals)}$",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                    color="0.35",
+                )
     ax_c.axhline(
         1.0, color="0.2", linestyle="--", linewidth=1.2, label="ideal HH slope"
     )
-    ax_c.set_xlabel(MATH_LABELS["x_nacl"])
-    ax_c.set_ylabel("HH slope m")
-    ax_c.text(
-        0.02,
-        0.875,
-        "Error bars: 95% CI",
-        transform=ax_c.transAxes,
-        ha="left",
-        va="top",
-        fontsize=10,
+    set_axis_labels(ax_c, MATH_LABELS["x_nacl"], "HH slope m")
+    set_ticks(ax_c, xstep=0.2, ystep=0.05)
+    ax_c.set_title("Fitted slope m vs [NaCl]")
+    add_info_box(
+        ax_c,
+        r"$\mathrm{Error\ bars}:\ 95\%\ \mathrm{CI}$",
+        loc="upper left",
+        fontsize=11,
     )
     ax_c.grid(True, axis="y")
-    ax_c.legend(frameon=False, loc="lower right")
+    set_sensible_ticks(ax_c, x=5, y=5)
 
     rmse_df = pd.DataFrame(rmse_rows, columns=["nacl", "rmse"])
     if not rmse_df.empty:
@@ -1078,24 +1482,96 @@ def plot_hh_linearization_and_diagnostics(
                 edgecolor="white",
                 linewidth=0.5,
             )
-    ax_d.set_xlabel(MATH_LABELS["x_nacl"])
-    ax_d.set_ylabel(r"HH fit RMSE / $\mathrm{pH}$")
+            vals_finite = vals[np.isfinite(vals)]
+            if len(vals_finite):
+                mean_rmse = float(np.mean(vals_finite))
+                sd_rmse = (
+                    float(np.std(vals_finite, ddof=1)) if len(vals_finite) > 1 else 0.0
+                )
+                ax_d.errorbar(
+                    [float(nacl)],
+                    [mean_rmse],
+                    yerr=[sd_rmse],
+                    fmt="o",
+                    color="black",
+                    markerfacecolor="white",
+                    markeredgecolor="black",
+                    markersize=7,
+                    capsize=3,
+                    zorder=4,
+                )
+    set_axis_labels(ax_d, MATH_LABELS["x_nacl"], r"HH fit RMSE / $\mathrm{pH}$")
+    set_ticks(ax_d, xstep=0.2, ystep=0.01)
+    ax_d.set_title("Fit RMSE vs [NaCl]")
     ax_d.grid(True, axis="y")
+    set_sensible_ticks(ax_d, x=5, y=5)
 
-    panel_labels = ("(a)", "(b)", "(c)", "(d)")
-    for ax, label in zip((ax_a, ax_b, ax_c, ax_d), panel_labels):
-        ax.text(
-            0.01,
-            1.00,
-            label,
-            transform=ax.transAxes,
-            ha="left",
-            va="top",
-            fontweight="bold",
+    for ax, label in zip((ax_a, ax_b, ax_c, ax_d), ("(a)", "(b)", "(c)", "(d)")):
+        add_panel_label(ax, label, y=0.95)
+
+    if legend_handles:
+        concentration_handles = [
+            Line2D(
+                [],
+                [],
+                marker="o",
+                linestyle="none",
+                markerfacecolor=color_for_nacl(float(nacl)),
+                markeredgecolor="white",
+                markersize=6,
+                label=(
+                    rf"$[\mathrm{{NaCl}}]={float(nacl):.1f}" r"\ \mathrm{mol\,dm^{-3}}$"
+                ),
+            )
+            for nacl in NACL_LEVELS
+        ]
+        legend_handles = [
+            Line2D(
+                [],
+                [],
+                marker="o",
+                linestyle="none",
+                markerfacecolor="none",
+                markeredgecolor="0.75",
+                markersize=6,
+                alpha=0.6,
+                label="excluded",
+            ),
+            Line2D(
+                [],
+                [],
+                marker="o",
+                linestyle="none",
+                markerfacecolor="0.3",
+                markeredgecolor="white",
+                markersize=6,
+                alpha=0.45,
+                label="included buffer region",
+            ),
+        ] + concentration_handles
+        figure_legend(
+            fig,
+            legend_handles,
+            [h.get_label() for h in legend_handles],
+            loc="upper center",
+            ncol=4,
+            bbox_to_anchor=(0.5, 0.95),
+            frameon=False,
         )
 
-    fig.tight_layout()
-    out_path = save_figure_bundle(fig, os.path.join(output_dir, f"{file_stem}.png"))
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="diagnostics"))
+    out_path = str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            legend_height=0.14 if legend_handles else 0.0,
+            tight=True,
+            pad_inches=0.14,
+        )
+    )
     if return_figure:
         return out_path, fig
     plt.close(fig)

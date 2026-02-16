@@ -1,12 +1,15 @@
 """Verify plotting functions do not mutate analysis results."""
 
 import copy
+from pathlib import Path
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import pandas.testing as pdt
 
 from salty.plotting import plot_titration_curves
+from salty.plotting.style import add_panel_label, save_figure_bundle
 
 
 def _make_results():
@@ -66,3 +69,45 @@ def test_plot_does_not_mutate_results(tmp_path):
     pdt.assert_frame_equal(results[0]["dense_curve"], snapshot[0]["dense_curve"])
     pdt.assert_frame_equal(results[0]["buffer_region"], snapshot[0]["buffer_region"])
     assert results[0]["pka_app"] == snapshot[0]["pka_app"]
+
+
+def test_save_figure_bundle_uses_tight_bounding(monkeypatch, tmp_path):
+    """Ensure multi-format exports use tight bounding and expected padding."""
+    fig, _ = plt.subplots()
+    calls = []
+
+    def _fake_savefig(path, **kwargs):
+        calls.append((Path(path).suffix, kwargs))
+
+    monkeypatch.setattr(fig, "savefig", _fake_savefig)
+
+    out_png = tmp_path / "integrity_plot.png"
+    saved = save_figure_bundle(fig, str(out_png))
+
+    assert saved.endswith("integrity_plot.png")
+    assert [ext for ext, _ in calls] == [".png", ".pdf", ".svg"]
+    for ext, kwargs in calls:
+        assert kwargs.get("bbox_inches") == "tight"
+        assert kwargs.get("pad_inches") == 0.12
+        if ext == ".png":
+            assert kwargs.get("dpi") == 300
+        else:
+            assert kwargs.get("dpi") is None
+
+    plt.close(fig)
+
+
+def test_add_panel_label_defaults_and_bbox_behavior():
+    """Verify panel-label defaults and boxless rendering policy."""
+    fig, ax = plt.subplots()
+    add_panel_label(ax, "(a)")
+    txt_default = ax.texts[-1]
+    assert txt_default.get_position() == (0.02, 0.98)
+    assert txt_default.get_bbox_patch() is None
+
+    add_panel_label(ax, "(b)", bbox=True)
+    txt_with_bbox = ax.texts[-1]
+    assert txt_with_bbox.get_position() == (0.02, 0.98)
+    assert txt_with_bbox.get_bbox_patch() is None
+
+    plt.close(fig)

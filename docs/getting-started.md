@@ -48,7 +48,13 @@ This script will:
 1. Read raw CSVs from `data/raw/`.
 2. Standardize and aggregate titration steps.
 3. Perform run-level regression analysis.
-4. Generate output tables (`output/`) and diagnostic plots (`docs/images/`).
+4. Generate output tables (`output/`) and figure artifacts (`output/figures/`).
+
+To refresh markdown-embedded images after figure generation:
+
+```bash
+cp output/figures/{summary,methods_or_derivations,diagnostics,qc}/*.png docs/images/
+```
 
 #### Verifying the Installation
 

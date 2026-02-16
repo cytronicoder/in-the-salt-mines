@@ -4,6 +4,21 @@ We investigated how sodium chloride concentration affects the apparent acid diss
 
 [![Apparent pKa precision across ionic strengths](docs/images/statistical_summary.png)](docs/images/statistical_summary.png)
 
+Key publication-ready figures are mirrored in [`docs/images/`](docs/images/) for documentation embeds.
+Regenerate and refresh them with:
+
+```bash
+python3 main.py --figures ia
+cp output/figures/{summary,methods_or_derivations,diagnostics,qc}/*.png docs/images/
+```
+
+Featured plots:
+
+- [Ionic strength vs apparent pKa](docs/images/pka_app_vs_nacl_and_I.png)
+- [Titration overlays by NaCl](docs/images/titration_overlays_by_nacl.png)
+- [Derivative equivalence by NaCl](docs/images/derivative_equivalence_by_nacl.png)
+- [Temperature and calibration QC](docs/images/temperature_and_calibration_qc.png)
+
 > [!NOTE]
 > This repository contains the source code and data for my IBDP Chemistry SL Internal Assessment. It is not intended for public use, and should be used solely for educational purposes. However, you are free to explore the code and data for learning on your own.
 
@@ -16,6 +31,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 - **[Analysis Methods](docs/analysis-methods.md)** - Mathematical and statistical methods
 - **[API Reference](docs/api-reference.md)** - Function and class documentation
 - **[Troubleshooting](docs/troubleshooting.md)** - Common issues and solutions
+- **[Figures Guide](docs/figures.md)** - Figure taxonomy and docs image sync workflow
+- **[Detailed Results](docs/individual_results.md)** - Diagnostic figures and run-level interpretation
 
 #### Installation
 
