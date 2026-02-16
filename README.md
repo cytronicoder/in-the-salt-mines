@@ -2,7 +2,7 @@
 
 We investigated how sodium chloride concentration affects the apparent acid dissociation constant ($K_a$) of ethanoic acid. We processed potentiometric titration data, determined equivalence points via derivative analysis, and applied a linearized Henderson-Hasselbalch model to quantify equilibrium shifts under varying ionic strengths.
 
-[![Apparent pKa precision across ionic strengths](docs/images/pka_precision_by_nacl.png)](docs/images/pka_precision_by_nacl.png)
+[![Apparent pKa precision across ionic strengths](docs/images/statistical_summary.png)](docs/images/statistical_summary.png)
 
 > [!NOTE]
 > This repository contains the source code and data for my IBDP Chemistry SL Internal Assessment. It is not intended for public use, and should be used solely for educational purposes. However, you are free to explore the code and data for learning on your own.

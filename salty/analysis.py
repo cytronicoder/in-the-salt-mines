@@ -1056,7 +1056,7 @@ def build_summary_plot_data(
     if np.sum(finite) >= 2:
         try:
             reg = linear_regression(x[finite], y_mean[finite], min_points=2)
-            fit = {"m": reg["m"], "b": reg["b"], "r2": reg["r2"]}
+            fit = reg
         except ValueError:
             fit = {"m": np.nan, "b": np.nan, "r2": np.nan}
 

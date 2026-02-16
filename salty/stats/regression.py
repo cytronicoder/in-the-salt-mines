@@ -34,7 +34,8 @@ def linear_regression(
     Returns:
         dict[str, float]: Regression diagnostics with keys ``m`` (slope),
         ``b`` (intercept), ``r2`` (coefficient of determination), ``se_m``,
-        ``se_b``, and ``ci95_b`` (95% half-width for intercept when available).
+        ``se_b``, ``ci95_m``, ``ci95_b`` (95% half-widths), and ``p_m``
+        (p-value for slope).
 
     Raises:
         ValueError: If there are insufficient valid points or insufficient x/y
@@ -71,22 +72,30 @@ def linear_regression(
     dof = n - 2
     xbar = float(np.mean(x_arr))
     ssxx = float(np.sum((x_arr - xbar) ** 2))
-    if ssxx <= 0:
-        raise ValueError("Insufficient variance in x for regression.")
+    mse = sse / dof if dof > 0 else np.inf
 
     se_m = math.nan
     se_b = math.nan
+    ci95_m = math.nan
     ci95_b = math.nan
-    if dof > 0:
-        s2 = sse / dof
-        se_m = float(np.sqrt(s2 / ssxx))
-        se_b = float(np.sqrt(s2 * (1.0 / n + (xbar**2) / ssxx)))
+    p_m = math.nan
+
+    if dof > 0 and ssxx > 0:
+        se_m = float(np.sqrt(mse / ssxx))
+        se_b = float(np.sqrt(mse * (1.0 / n + (xbar**2) / ssxx)))
+
         if HAVE_SCIPY:
             try:
-                tcrit = float(student_t.ppf(0.975, dof))
-                ci95_b = float(tcrit * se_b)
+                # Two-tailed t-test for slope
+                t_stat = m / se_m if se_m > 0 else np.inf
+                p_m = float(2 * (1 - student_t.cdf(abs(t_stat), dof)))
+
+                # 95% Confidence Intervals (half-width)
+                t_crit = float(student_t.ppf(0.975, dof))
+                ci95_m = t_crit * se_m
+                ci95_b = t_crit * se_b
             except Exception:
-                ci95_b = math.nan
+                pass
 
     return {
         "m": float(m),
@@ -94,7 +103,14 @@ def linear_regression(
         "r2": float(r2),
         "se_m": se_m,
         "se_b": se_b,
+        "ci95_m": ci95_m,
         "ci95_b": ci95_b,
+        "p_m": p_m,
+        "n": n,
+        "dof": dof,
+        "mse": mse,
+        "ssxx": ssxx,
+        "xbar": xbar,
     }
 
 
