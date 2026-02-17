@@ -8,6 +8,10 @@
 - **[Figures Guide](figures.md)** - Output figure taxonomy and `docs/images` sync workflow.
 - **[Detailed Results](individual_results.md)** - Diagnostic plots and run-level analysis figures.
 
+Error-diagnosis outputs from `salty.error_diagnosis` are produced in
+`output/error_diagnosis/` and can be mirrored into `docs/images/` alongside
+`output/figures/` assets.
+
 Key rendered figure assets used in markdown pages are mirrored under `docs/images/`.
 
 ### Quick Links

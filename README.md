@@ -9,7 +9,9 @@ Regenerate and refresh them with:
 
 ```bash
 python3 main.py --figures ia
+python -m salty.error_diagnosis --input output/individual_results.csv --pka-lit 4.76
 cp output/figures/{summary,methods_or_derivations,diagnostics,qc}/*.png docs/images/
+cp output/error_diagnosis/*.png docs/images/
 ```
 
 Featured plots:
@@ -18,6 +20,16 @@ Featured plots:
 - [Titration overlays by NaCl](docs/images/titration_overlays_by_nacl.png)
 - [Derivative equivalence by NaCl](docs/images/derivative_equivalence_by_nacl.png)
 - [Temperature and calibration QC](docs/images/temperature_and_calibration_qc.png)
+- [HH linearization and diagnostics](docs/images/hh_linearization_and_diagnostics.png)
+- [Replicate precision by NaCl](docs/images/pka_precision_by_nacl.png)
+
+Error-diagnosis plots:
+
+- [Regression with replicate error bars](docs/images/regression_with_errorbars.png)
+- [Residuals vs fitted (linear)](docs/images/residuals_vs_fitted_linear.png)
+- [Residuals vs concentration (linear)](docs/images/residuals_vs_concentration_linear.png)
+- [Spread (SD) vs concentration](docs/images/sd_or_var_vs_concentration.png)
+- [Group spread boxplots](docs/images/group_spread.png)
 
 > [!NOTE]
 > This repository contains the source code and data for my IBDP Chemistry SL Internal Assessment. It is not intended for public use, and should be used solely for educational purposes. However, you are free to explore the code and data for learning on your own.
@@ -68,8 +80,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
    ```bash
    python -m salty.error_diagnosis \
-     --input path/to/replicates.csv \
-     --outdir outputs/error_diagnosis \
+       --input output/individual_results.csv \
+       --outdir output/error_diagnosis \
      --pka-lit 4.76
    ```
 

@@ -50,10 +50,17 @@ This script will:
 3. Perform run-level regression analysis.
 4. Generate output tables (`output/`) and figure artifacts (`output/figures/`).
 
+To generate replicate-level error diagnosis figures and test tables:
+
+```bash
+python -m salty.error_diagnosis --input output/individual_results.csv --pka-lit 4.76
+```
+
 To refresh markdown-embedded images after figure generation:
 
 ```bash
 cp output/figures/{summary,methods_or_derivations,diagnostics,qc}/*.png docs/images/
+cp output/error_diagnosis/*.png docs/images/
 ```
 
 #### Verifying the Installation
