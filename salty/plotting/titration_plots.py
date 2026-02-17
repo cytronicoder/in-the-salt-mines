@@ -84,7 +84,10 @@ def setup_plot_style():
 
 
 def plot_titration_curves(
-    results: List[Dict], output_dir: str | None = None, show_raw_pH: bool = False
+    results: List[Dict],
+    output_dir: str | None = None,
+    show_raw_pH: bool = False,
+    show_eq_candidates: bool = False,
 ) -> List[str]:
     """Render per-run three-panel titration diagnostic figures.
 
@@ -95,6 +98,9 @@ def plot_titration_curves(
             ``"output"``.
         show_raw_pH (bool, optional): If ``True``, overlay raw pH points in
             panel 1. Defaults to ``False``.
+        show_eq_candidates (bool, optional): If ``True`` and diagnostics are
+            available, overlay candidate derivative peaks and highlight the
+            selected peak in panel 2. Defaults to ``False``.
 
     Returns:
         list[str]: PNG paths for each generated run figure.
@@ -136,6 +142,11 @@ def plot_titration_curves(
         step_df: pd.DataFrame = res["step_data"]
         buffer_df: pd.DataFrame = res.get("buffer_region", pd.DataFrame())
         dense_df: pd.DataFrame = res.get("dense_curve", pd.DataFrame())
+        eq_diag = (
+            res.get("diagnostics", {}).get("equivalence_qc", {})
+            if isinstance(res.get("diagnostics", {}), dict)
+            else {}
+        )
 
         run_name = str(res.get("run_name", f"Run {i+1}"))
         x_col = res.get("x_col", "Volume (cm^3)")
@@ -305,6 +316,54 @@ def plot_titration_curves(
                     color="black",
                     label="First derivative",
                 )
+
+                if show_eq_candidates and isinstance(eq_diag, dict):
+                    candidate_peaks = eq_diag.get("candidate_peaks", [])
+                    selected_peak_idx = eq_diag.get("peak_index")
+                    cand_x: List[float] = []
+                    cand_y: List[float] = []
+                    sel_x: List[float] = []
+                    sel_y: List[float] = []
+                    for cand in candidate_peaks:
+                        idx = int(cand.get("peak_index", -1))
+                        xv = float(cand.get("volume_cm3", np.nan))
+                        yv = float(cand.get("derivative", np.nan))
+                        if not np.isfinite(xv) and 0 <= idx < len(xs):
+                            xv = float(xs[idx])
+                        if not np.isfinite(yv) and 0 <= idx < len(ys):
+                            yv = float(ys[idx])
+                        if not (np.isfinite(xv) and np.isfinite(yv)):
+                            continue
+                        if selected_peak_idx is not None and idx == int(
+                            selected_peak_idx
+                        ):
+                            sel_x.append(xv)
+                            sel_y.append(yv)
+                        else:
+                            cand_x.append(xv)
+                            cand_y.append(yv)
+                    if cand_x:
+                        ax2.scatter(
+                            cand_x,
+                            cand_y,
+                            s=26,
+                            facecolors="white",
+                            edgecolors="0.25",
+                            linewidths=1.0,
+                            label="Candidate peaks",
+                            zorder=5,
+                        )
+                    if sel_x:
+                        ax2.scatter(
+                            sel_x,
+                            sel_y,
+                            s=34,
+                            facecolors="black",
+                            edgecolors="black",
+                            linewidths=0.8,
+                            label="Selected peak",
+                            zorder=6,
+                        )
 
                 if np.isfinite(veq):
                     ax2.axvline(

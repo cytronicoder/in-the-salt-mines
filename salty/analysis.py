@@ -15,7 +15,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import warnings
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import numpy as np
 import pandas as pd
@@ -35,8 +35,9 @@ HAVE_SAVGOL = HAVE_SCIPY and (importlib.util.find_spec("scipy.signal") is not No
 if HAVE_SCIPY:
     from scipy.interpolate import PchipInterpolator
 if HAVE_SAVGOL:
-    from scipy.signal import savgol_filter
+    from scipy.signal import find_peaks, savgol_filter
 else:
+    find_peaks = None
     savgol_filter = None
 
 DEFAULT_BURETTE_UNC = 0.10
@@ -289,6 +290,150 @@ def _ensure_derivative(step_df: pd.DataFrame, use_smooth: bool = True) -> pd.Dat
     return df
 
 
+def _find_peak_candidates(
+    derivative: np.ndarray, edge_buffer: int = 2
+) -> Tuple[np.ndarray, Dict[int, float], Dict[str, float]]:
+    """Find candidate maxima in ``dpH/dx`` for equivalence selection.
+
+    Args:
+        derivative (numpy.ndarray): First-derivative series at step points.
+        edge_buffer (int): Minimum index distance from each boundary.
+
+    Returns:
+        tuple[numpy.ndarray, dict[int, float], dict[str, float]]: Candidate
+        indices, per-index prominence lookup, and peak-detection settings.
+
+    Note:
+        Prefer SciPy peak finding with adaptive prominence thresholds and fall
+        back to local-maxima logic when SciPy is unavailable.
+    """
+    d = np.asarray(derivative, dtype=float)
+    n = int(len(d))
+    if n == 0:
+        return np.array([], dtype=int), {}, {}
+
+    finite = np.isfinite(d)
+    if not np.any(finite):
+        return np.array([], dtype=int), {}, {}
+
+    d_f = d[finite]
+    d_range = float(np.nanmax(d_f) - np.nanmin(d_f))
+    q75, q25 = np.nanpercentile(d_f, [75.0, 25.0])
+    iqr = float(max(q75 - q25, 0.0))
+    min_prominence = float(max(0.05, 0.10 * d_range, 0.50 * iqr))
+
+    settings = {
+        "min_prominence": min_prominence,
+        "min_width_points": 1.0,
+        "edge_buffer": float(edge_buffer),
+    }
+
+    prominence_lookup: Dict[int, float] = {}
+    candidate_indices: np.ndarray
+
+    if find_peaks is not None:
+        work = d.copy()
+        floor = float(np.nanmin(d_f) - max(1e-6, 0.05 * max(abs(np.nanmax(d_f)), 1.0)))
+        work[~np.isfinite(work)] = floor
+        peaks, props = find_peaks(work, prominence=min_prominence, width=1)
+        if len(peaks) == 0:
+            peaks, props = find_peaks(work, width=1)
+        prominences = props.get("prominences", np.full(len(peaks), np.nan))
+        prominence_lookup = {
+            int(idx): float(prominences[i]) for i, idx in enumerate(peaks)
+        }
+        candidate_indices = np.asarray(peaks, dtype=int)
+    else:
+        if n < 3:
+            candidate_indices = np.array([], dtype=int)
+        else:
+            is_peak = (d[1:-1] >= d[:-2]) & (d[1:-1] > d[2:])
+            candidate_indices = np.where(is_peak)[0] + 1
+
+    if candidate_indices.size:
+        valid = np.isfinite(d[candidate_indices])
+        candidate_indices = candidate_indices[valid]
+
+    if candidate_indices.size:
+        interior = (candidate_indices > edge_buffer) & (
+            candidate_indices < (n - 1 - edge_buffer)
+        )
+        candidate_indices = candidate_indices[interior]
+
+    return candidate_indices, prominence_lookup, settings
+
+
+def _candidate_peak_metrics(
+    step_df: pd.DataFrame,
+    derivative: np.ndarray,
+    peak_index: int,
+    prominence: float = np.nan,
+) -> Dict[str, float]:
+    """Compute explainable selection metrics for one equivalence candidate."""
+    volumes = pd.to_numeric(step_df["Volume (cm^3)"], errors="coerce").to_numpy(
+        dtype=float
+    )
+    pH_vals = pd.to_numeric(step_df["pH_step"], errors="coerce").to_numpy(dtype=float)
+    n = int(len(step_df))
+
+    before_idx = max(int(peak_index) - 2, 0)
+    after_idx = min(int(peak_index) + 2, n - 1)
+    local_jump = float(pH_vals[after_idx] - pH_vals[before_idx])
+    deriv_val = (
+        float(derivative[peak_index]) if np.isfinite(derivative[peak_index]) else np.nan
+    )
+    post_points = int(n - peak_index - 1)
+
+    post_tail_slope = np.nan
+    post_monotonic_fraction = np.nan
+    post_slice = slice(int(peak_index) + 1, n)
+    v_post = volumes[post_slice]
+    p_post = pH_vals[post_slice]
+    post_mask = np.isfinite(v_post) & np.isfinite(p_post)
+    v_post = v_post[post_mask]
+    p_post = p_post[post_mask]
+
+    if len(p_post) >= 2:
+        diffs = np.diff(p_post)
+        post_monotonic_fraction = float(np.mean(diffs >= -0.05))
+
+    if len(p_post) >= 4:
+        tail_n = int(min(6, len(p_post)))
+        try:
+            post_tail_slope = float(
+                np.polyfit(v_post[-tail_n:], p_post[-tail_n:], 1)[0]
+            )
+        except Exception:
+            post_tail_slope = np.nan
+
+    score = float(local_jump)
+    if np.isfinite(prominence):
+        score += 0.35 * float(prominence)
+    elif np.isfinite(deriv_val):
+        score += 0.15 * float(max(deriv_val, 0.0))
+    if np.isfinite(post_monotonic_fraction):
+        score += 0.20 * float(post_monotonic_fraction)
+    if np.isfinite(post_tail_slope):
+        score -= 0.30 * abs(float(post_tail_slope))
+    score += 0.10 * float(min(post_points / 6.0, 1.0))
+
+    return {
+        "local_jump_pH": float(local_jump),
+        "derivative_value": float(deriv_val) if np.isfinite(deriv_val) else np.nan,
+        "prominence": float(prominence) if np.isfinite(prominence) else np.nan,
+        "post_points": float(post_points),
+        "post_monotonic_fraction": (
+            float(post_monotonic_fraction)
+            if np.isfinite(post_monotonic_fraction)
+            else np.nan
+        ),
+        "post_tail_slope_pH_per_cm3": (
+            float(post_tail_slope) if np.isfinite(post_tail_slope) else np.nan
+        ),
+        "selection_score": float(score),
+    }
+
+
 def _qc_equivalence(
     step_df: pd.DataFrame,
     peak_index: int,
@@ -331,6 +476,9 @@ def _qc_equivalence(
         diagnostics["post_coverage_flag"] = False
 
     pH_vals = pd.to_numeric(step_df["pH_step"], errors="coerce").to_numpy(dtype=float)
+    v_vals = pd.to_numeric(step_df["Volume (cm^3)"], errors="coerce").to_numpy(
+        dtype=float
+    )
     pH_f = pH_vals[np.isfinite(pH_vals)]
     if len(pH_f) >= 3:
         total_span = float(np.max(pH_f) - np.min(pH_f))
@@ -352,6 +500,41 @@ def _qc_equivalence(
         diagnostics["steepness_threshold_pH"] = np.nan
         diagnostics["steepness_flag"] = True
 
+    post_slice = slice(int(peak_index) + 1, n)
+    post_pH = pH_vals[post_slice]
+    post_v = v_vals[post_slice]
+    post_mask = np.isfinite(post_pH) & np.isfinite(post_v)
+    post_pH = post_pH[post_mask]
+    post_v = post_v[post_mask]
+
+    monotonic_threshold = 0.60
+    if len(post_pH) >= 2:
+        diffs = np.diff(post_pH)
+        monotonic_fraction = float(np.mean(diffs >= -0.05))
+        diagnostics["post_monotonic_fraction"] = monotonic_fraction
+        diagnostics["post_monotonic_threshold"] = float(monotonic_threshold)
+        if monotonic_fraction < monotonic_threshold:
+            reasons.append("Post-equivalence region not monotonic/stable")
+            diagnostics["post_monotonic_flag"] = True
+        else:
+            diagnostics["post_monotonic_flag"] = False
+    else:
+        diagnostics["post_monotonic_fraction"] = np.nan
+        diagnostics["post_monotonic_threshold"] = float(monotonic_threshold)
+        diagnostics["post_monotonic_flag"] = True
+
+    if len(post_pH) >= 4:
+        tail_n = int(min(6, len(post_pH)))
+        diagnostics["post_tail_points"] = tail_n
+        try:
+            tail_slope = float(np.polyfit(post_v[-tail_n:], post_pH[-tail_n:], 1)[0])
+        except Exception:
+            tail_slope = np.nan
+        diagnostics["post_tail_slope_pH_per_cm3"] = tail_slope
+    else:
+        diagnostics["post_tail_points"] = int(len(post_pH))
+        diagnostics["post_tail_slope_pH_per_cm3"] = np.nan
+
     ok = len(reasons) == 0
     return ok, ("OK" if ok else "; ".join(reasons)), diagnostics
 
@@ -370,10 +553,12 @@ def detect_equivalence_point(
     the expected equivalence volume is ~25 cm^3.
 
     Detection strategy:
-        1. Compute dpH/dV from step-aggregated data (numerical gradient)
-        2. Locate the maximum of dpH/dV (steepest pH rise)
-        3. Apply QC checks: edge proximity, post-equivalence coverage, pH jump
-        4. If QC passes, record V_eq and pH_eq
+        1. Compute stepwise ``dpH/dV`` from smoothed step data (numerical gradient).
+        2. Detect candidate derivative peaks (prominence-based with edge exclusion).
+        3. Apply QC checks per candidate (edge distance, post-coverage, pH jump,
+           post-equivalence monotonic behavior).
+        4. Score candidates using local pH-jump strength and post-peak behavior,
+           then select the best QC-passing candidate.
 
     The equivalence point is used to calculate the half-equivalence volume:
         V_half = V_eq / 2
@@ -396,10 +581,10 @@ def detect_equivalence_point(
     Note:
         IA correspondence: this function implements the endpoint-identification
         step used to define equivalence before half-equivalence and buffer
-        analysis. The current implementation reports the derivative-peak
-        location from step or dense interpolation data. If an interval-midpoint
-        endpoint convention is required for final IA text, document that as a
-        reporting-layer convention and keep provenance explicit.
+        analysis. Peak selection is performed on the step-gradient derivative.
+        Interpolation is used for pH lookup and dense fallback only. If an
+        interval-midpoint endpoint convention is required for final IA text,
+        document that as a reporting-layer convention and keep provenance explicit.
 
         Failure modes include boundary peaks, weak local steepness, or multiple
         comparable maxima; these are exposed through QC flags and warnings.
@@ -421,59 +606,151 @@ def detect_equivalence_point(
 
     volumes = pd.to_numeric(df["Volume (cm^3)"], errors="coerce").to_numpy(dtype=float)
     deriv_source = "step_gradient"
-    d = pd.to_numeric(df["dpH/dx"], errors="coerce")
-    if interpolator and "deriv_func" in interpolator:
-        d_eval = interpolator["deriv_func"](volumes)
-        d = pd.Series(d_eval, index=df.index)
-        deriv_source = "pchip_step"
+    d_series = pd.to_numeric(df["dpH/dx"], errors="coerce")
+    d = d_series.to_numpy(dtype=float)
 
-    if d.dropna().empty:
-        step_ok, step_reason = False, "Derivative all NaN"
-        eq_x_step = np.nan
-        peak_idx = None
-    else:
-        peak_idx = int(d.idxmax())
+    step_ok = False
+    step_reason = "Derivative all NaN"
+    eq_x_step = np.nan
+    peak_idx = None
+    qc_metrics: Dict[str, float | int | bool] = {}
+    candidate_rows: List[Dict] = []
+    peak_settings: Dict[str, float] = {}
+    selected_row: Dict | None = None
 
-        d_vals = d.dropna()
-        if len(d_vals) > 0:
-            max_deriv = float(d_vals.max())
-            threshold = 0.9 * max_deriv
-            n_comparable = int(np.sum(d_vals >= threshold))
-            if n_comparable > 1:
-                msg = (
-                    "Multiple possible equivalence points detected "
-                    f"({n_comparable} peaks); result may be unstable."
-                )
-                warnings.warn(msg, UserWarning, stacklevel=2)
-
-        step_ok, step_reason, qc_metrics = _qc_equivalence(
-            df, peak_idx, edge_buffer=edge_buffer, min_post_points=min_post_points
+    if np.any(np.isfinite(d)):
+        candidate_indices, prominence_lookup, peak_settings = _find_peak_candidates(
+            d, edge_buffer=edge_buffer
         )
-        eq_x_step = float(df.loc[peak_idx, "Volume (cm^3)"])
 
-        v_min, v_max = float(np.nanmin(volumes)), float(np.nanmax(volumes))
-        v_range = v_max - v_min
-        if v_range > 0:
-            if eq_x_step < (v_min + 0.05 * v_range) or eq_x_step > (
-                v_max - 0.05 * v_range
-            ):
+        if candidate_indices.size == 0:
+            finite_idx = np.where(np.isfinite(d))[0]
+            interior_idx = finite_idx[
+                (finite_idx > edge_buffer) & (finite_idx < (len(d) - 1 - edge_buffer))
+            ]
+            pool = interior_idx if len(interior_idx) else finite_idx
+            if len(pool):
+                fallback_idx = int(pool[int(np.nanargmax(d[pool]))])
+                candidate_indices = np.array([fallback_idx], dtype=int)
+
+        for idx in candidate_indices:
+            prom = float(prominence_lookup.get(int(idx), np.nan))
+            qc_pass, qc_reason, cand_qc_metrics = _qc_equivalence(
+                df, int(idx), edge_buffer=edge_buffer, min_post_points=min_post_points
+            )
+            metrics = _candidate_peak_metrics(df, d, int(idx), prominence=prom)
+            candidate = {
+                "peak_index": int(idx),
+                "volume_cm3": float(df.loc[int(idx), "Volume (cm^3)"]),
+                "qc_pass": bool(qc_pass),
+                "qc_reason": str(qc_reason),
+                "qc_metrics": cand_qc_metrics,
+            }
+            candidate.update(metrics)
+            candidate_rows.append(candidate)
+
+        valid_candidates = [c for c in candidate_rows if c["qc_pass"]]
+        ranking_pool = valid_candidates if valid_candidates else candidate_rows
+
+        if ranking_pool:
+            center_idx = 0.5 * float(len(df) - 1)
+
+            def _rank_key(cand: Dict) -> Tuple[float, float, float, float]:
+                prominence = cand["prominence"]
+                prominence = float(prominence) if np.isfinite(prominence) else -np.inf
+                return (
+                    float(cand["selection_score"]),
+                    float(cand["local_jump_pH"]),
+                    prominence,
+                    -abs(float(cand["peak_index"]) - center_idx),
+                )
+
+            selected_row = max(ranking_pool, key=_rank_key)
+            peak_idx = int(selected_row["peak_index"])
+            step_ok = bool(selected_row["qc_pass"])
+            step_reason = str(selected_row["qc_reason"])
+            qc_metrics = selected_row["qc_metrics"]
+            eq_x_step = float(df.loc[peak_idx, "Volume (cm^3)"])
+
+            if len(valid_candidates) == 0:
                 msg = (
-                    f"Equivalence point V_eq={eq_x_step:.2f} is near data edge; "
-                    "extend volume range for more reliable detection."
+                    "No equivalence candidate passed QC; selected the highest-"
+                    "scoring candidate but QC is not satisfied."
                 )
                 warnings.warn(msg, UserWarning, stacklevel=2)
-        if gate_on_qc and not step_ok:
-            eq_x_step = np.nan
+
+            if len(ranking_pool) > 1:
+                scores = np.asarray(
+                    [c["selection_score"] for c in ranking_pool], dtype=float
+                )
+                scores = scores[np.isfinite(scores)]
+                if len(scores) >= 2:
+                    scores = np.sort(scores)[::-1]
+                    if scores[1] >= 0.90 * scores[0]:
+                        msg = (
+                            "Multiple comparable equivalence candidates remain after "
+                            "QC/score filtering; result may be unstable."
+                        )
+                        warnings.warn(msg, UserWarning, stacklevel=2)
+
+            v_min, v_max = float(np.nanmin(volumes)), float(np.nanmax(volumes))
+            v_range = v_max - v_min
+            if v_range > 0:
+                if eq_x_step < (v_min + 0.05 * v_range) or eq_x_step > (
+                    v_max - 0.05 * v_range
+                ):
+                    msg = (
+                        f"Equivalence point V_eq={eq_x_step:.2f} is near data edge; "
+                        "extend volume range for more reliable detection."
+                    )
+                    warnings.warn(msg, UserWarning, stacklevel=2)
+            if gate_on_qc and not step_ok:
+                eq_x_step = np.nan
 
     qc_diagnostics = {
         "edge_buffer": edge_buffer,
         "min_post_points": min_post_points,
         "derivative_source": deriv_source,
+        "peak_selection": "qc_pass_then_composite_score",
+        "candidate_count": int(len(candidate_rows)),
+        "peak_detection": peak_settings,
     }
     if peak_idx is not None:
         qc_diagnostics["peak_index"] = int(peak_idx)
-    if "qc_metrics" in locals():
+    if selected_row is not None:
+        qc_diagnostics["selected_peak_score"] = float(selected_row["selection_score"])
+        qc_diagnostics["selected_peak_local_jump_pH"] = float(
+            selected_row["local_jump_pH"]
+        )
+    if qc_metrics:
         qc_diagnostics.update(qc_metrics)
+    if candidate_rows:
+        qc_diagnostics["candidate_peaks"] = [
+            {
+                "peak_index": int(c["peak_index"]),
+                "volume_cm3": float(c["volume_cm3"]),
+                "derivative": float(c["derivative_value"]),
+                "prominence": (
+                    float(c["prominence"]) if np.isfinite(c["prominence"]) else np.nan
+                ),
+                "local_jump_pH": float(c["local_jump_pH"]),
+                "post_points": int(c["post_points"]),
+                "post_monotonic_fraction": (
+                    float(c["post_monotonic_fraction"])
+                    if np.isfinite(c["post_monotonic_fraction"])
+                    else np.nan
+                ),
+                "post_tail_slope_pH_per_cm3": (
+                    float(c["post_tail_slope_pH_per_cm3"])
+                    if np.isfinite(c["post_tail_slope_pH_per_cm3"])
+                    else np.nan
+                ),
+                "selection_score": float(c["selection_score"]),
+                "qc_pass": bool(c["qc_pass"]),
+                "qc_reason": str(c["qc_reason"]),
+            }
+            for c in candidate_rows
+        ]
 
     if np.isfinite(eq_x_step):
         eq_pH = (
@@ -492,11 +769,9 @@ def detect_equivalence_point(
 
     if interpolator and ("x_min" in interpolator) and ("x_max" in interpolator):
         x_dense = np.linspace(interpolator["x_min"], interpolator["x_max"], 2500)
-        if "deriv_func" in interpolator:
-            d_dense = interpolator["deriv_func"](x_dense)
-        else:
-            y_dense = interpolator["func"](x_dense)
-            d_dense = np.gradient(y_dense, x_dense)
+        y_dense = interpolator["func"](x_dense)
+        d_dense = np.gradient(y_dense, x_dense)
+        qc_diagnostics["dense_derivative_source"] = "dense_gradient"
 
         d_dense = np.asarray(d_dense, dtype=float)
         mask = np.isfinite(d_dense)
@@ -877,6 +1152,11 @@ def create_results_dataframe(results):
         missing = required_keys - set(res.keys())
         if missing:
             raise KeyError(f"Result entry missing required keys: {missing}.")
+        eq_diag = (
+            res.get("diagnostics", {}).get("equivalence_qc", {})
+            if isinstance(res.get("diagnostics", {}), dict)
+            else {}
+        )
         rows.append(
             {
                 "Run": res.get("run_name"),
@@ -885,6 +1165,9 @@ def create_results_dataframe(results):
                 "pKa_app method": res.get("pka_method", ""),
                 cols.pka_unc: res.get("pka_app_uncertainty", np.nan),
                 "Equivalence QC Pass": bool(res.get("eq_qc_pass", False)),
+                "Equivalence QC Reason": res.get("eq_qc_reason", ""),
+                "Equivalence Derivative Source": eq_diag.get("derivative_source", ""),
+                "Equivalence Peak Selection": eq_diag.get("peak_selection", ""),
                 "Veq (used)": res.get("veq_used", np.nan),
                 "Veq uncertainty (ΔVeq)": res.get("veq_uncertainty", np.nan),
                 "Veq method": res.get("veq_method", ""),
@@ -1129,14 +1412,21 @@ def print_statistics(stats_df: pd.DataFrame, results_df: pd.DataFrame):
             pka = r.get(cols.pka_app)
             pka_unc = r.get(cols.pka_unc)
             qc = r.get("Equivalence QC Pass")
+            qc_reason = str(r.get("Equivalence QC Reason", "") or "")
+            deriv_source = str(r.get("Equivalence Derivative Source", "") or "")
             veq = r.get("Veq (used)")
             method = r.get("Veq method", "")
             pka_method = r.get("pKa_app method", "")
+            qc_txt = f"QC: {qc}"
+            if qc_reason:
+                qc_txt += f" ({qc_reason})"
+            if deriv_source:
+                qc_txt += f", d-source={deriv_source}"
             if pd.notna(pka_unc):
                 base = f"     {r['Run']}: pKa_app={pka:.3f} ± {pka_unc:.3f}"
-                extras = f" ({pka_method}) | Veq={veq:.3f} ({method}) | QC: {qc}"
+                extras = f" ({pka_method}) | Veq={veq:.3f} ({method}) | {qc_txt}"
                 print(base + extras)
             else:
                 base = f"     {r['Run']}: pKa_app={pka:.3f} ({pka_method})"
-                extras = f" | Veq={veq:.3f} ({method}) | QC: {qc}"
+                extras = f" | Veq={veq:.3f} ({method}) | {qc_txt}"
                 print(base + extras)
