@@ -7,7 +7,7 @@ from typing import Dict, List
 
 import pandas as pd
 
-from salty.reporting import generate_ia_caption_texts, write_caption_files
+from salty.reporting import generate_caption_texts, write_caption_files
 
 from .qc_plots import plot_temperature_and_calibration_qc
 from .style import apply_global_style, figure_base_path
@@ -21,7 +21,7 @@ from .titration_plots import (
 )
 
 
-def _render_ia_bundle(
+def _render_bundle(
     results: List[Dict],
     results_df: pd.DataFrame,
     output_dir: str | None,
@@ -71,7 +71,7 @@ def _render_ia_bundle(
     )
     paths["temperature_and_calibration_qc"] = fig5_path
 
-    captions = generate_ia_caption_texts(
+    captions = generate_caption_texts(
         results=results,
         results_df=results_df,
         figure3_fit=fig3_meta,
@@ -80,13 +80,13 @@ def _render_ia_bundle(
     caption_dir = (
         summary_dir
         if summary_dir
-        else str(figure_base_path("ia_captions", kind="supplemental").parent)
+        else str(figure_base_path("captions", kind="supplemental").parent)
     )
     write_caption_files(captions, caption_dir)
     return paths
 
 
-def generate_ia_figure_set(
+def generate_figure_set(
     results: List[Dict],
     results_df: pd.DataFrame,
     output_dir: str | None = None,
@@ -94,14 +94,14 @@ def generate_ia_figure_set(
     summary_csv_path: str = "output/ia/processed_summary_with_sd.csv",
 ) -> Dict[str, str]:
     """Generate Figure 1-5 + captions into IA and optional iteration folders."""
-    primary = _render_ia_bundle(
+    primary = _render_bundle(
         results=results,
         results_df=results_df,
         output_dir=output_dir,
         summary_csv_path=summary_csv_path,
     )
     if iteration_output_dir:
-        _render_ia_bundle(
+        _render_bundle(
             results=results,
             results_df=results_df,
             output_dir=iteration_output_dir,

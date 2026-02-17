@@ -26,7 +26,7 @@ from salty.data_processing import extract_runs, load_titration_data
 from salty.output import save_data_to_csv
 from salty.plotting import (
     generate_all_qc_plots,
-    generate_ia_figure_set,
+    generate_figure_set,
     plot_statistical_summary,
     plot_titration_curves,
 )
@@ -225,19 +225,19 @@ def _filter_exact_iv_results(results: list[dict]) -> list[dict]:
 def _generate_additional_diagnostic_outputs(
     results_df: pd.DataFrame,
     processed_df: pd.DataFrame,
-    ia_dir: str,
+    dir: str,
 ) -> None:
     """Generate supplemental IA diagnostics from aggregated run tables.
 
     Args:
         results_df (pandas.DataFrame): Run-level results table.
         processed_df (pandas.DataFrame): Condition-level processed summary table.
-        ia_dir (str): Output directory path for IA diagnostics.
+        dir (str): Output directory path for IA diagnostics.
 
     Returns:
-        None: Write diagnostic CSV and PNG artifacts to ``ia_dir``.
+        None: Write diagnostic CSV and PNG artifacts to ``dir``.
     """
-    os.makedirs(ia_dir, exist_ok=True)
+    os.makedirs(dir, exist_ok=True)
     apply_style(font_scale=1.0, context="paper")
 
     def _save_diag_figure(fig_obj: plt.Figure, key: str) -> None:
@@ -263,9 +263,7 @@ def _generate_additional_diagnostic_outputs(
         repeats_df,
         [("Apparent pKa", "Uncertainty in Apparent pKa")],
     )
-    repeats_df.to_csv(
-        os.path.join(ia_dir, "diagnostic_dv_repeats_table.csv"), index=False
-    )
+    repeats_df.to_csv(os.path.join(dir, "diagnostic_dv_repeats_table.csv"), index=False)
 
     mean_df = (
         processed_df[
@@ -323,7 +321,7 @@ def _generate_additional_diagnostic_outputs(
         ]
     )
     regression_compare.to_csv(
-        os.path.join(ia_dir, "diagnostic_regression_weighted_vs_unweighted.csv"),
+        os.path.join(dir, "diagnostic_regression_weighted_vs_unweighted.csv"),
         index=False,
     )
 
@@ -349,7 +347,7 @@ def _generate_additional_diagnostic_outputs(
         }
     )
     diagnostics_df.to_csv(
-        os.path.join(ia_dir, "diagnostic_diagnostic_metrics.csv"), index=False
+        os.path.join(dir, "diagnostic_diagnostic_metrics.csv"), index=False
     )
 
     fig, ax = plt.subplots(figsize=(7.5, 4.8), constrained_layout=True)
@@ -719,17 +717,17 @@ def main(argv: list[str] | None = None):
         os.makedirs(output_dir, exist_ok=True)
         logging.info("Output directory ensured: %s", output_dir)
 
-        ia_dir = os.path.join(output_dir, "ia")
-        os.makedirs(ia_dir, exist_ok=True)
+        dir = os.path.join(output_dir, "ia")
+        os.makedirs(dir, exist_ok=True)
 
         pd.DataFrame(raw_checked_rows).to_csv(
-            os.path.join(ia_dir, "raw_checked_index.csv"), index=False
+            os.path.join(dir, "raw_checked_index.csv"), index=False
         )
         pd.DataFrame(skipped_runs).to_csv(
-            os.path.join(ia_dir, "skipped_runs.csv"), index=False
+            os.path.join(dir, "skipped_runs.csv"), index=False
         )
         results_df.to_csv(
-            os.path.join(ia_dir, "individual_results_rawfiles.csv"), index=False
+            os.path.join(dir, "individual_results_rawfiles.csv"), index=False
         )
 
         grouped_rows = []
@@ -782,9 +780,9 @@ def main(argv: list[str] | None = None):
             [("Mean pKa_app", "Combined uncertainty")],
         )
         processed_df.to_csv(
-            os.path.join(ia_dir, "processed_summary_with_sd.csv"), index=False
+            os.path.join(dir, "processed_summary_with_sd.csv"), index=False
         )
-        _generate_additional_diagnostic_outputs(results_df, processed_df, ia_dir)
+        _generate_additional_diagnostic_outputs(results_df, processed_df, dir)
 
         iterations = [
             IterationSpec("all_valid", "All valid fitted runs"),
@@ -804,7 +802,7 @@ def main(argv: list[str] | None = None):
             iteration_rows.append(row)
 
         iteration_df = pd.DataFrame(iteration_rows)
-        iteration_df.to_csv(os.path.join(ia_dir, "iteration_overview.csv"), index=False)
+        iteration_df.to_csv(os.path.join(dir, "iteration_overview.csv"), index=False)
 
         if args.figures == "ia":
             profile_lookup = {
@@ -813,23 +811,21 @@ def main(argv: list[str] | None = None):
                 "strict_fit": "QC pass + R2>=0.98 + |slope-1|<=0.20",
             }
             selected_spec = IterationSpec(args.profile, profile_lookup[args.profile])
-            ia_results, ia_results_df = _build_iteration_results(
+            results, results_df = _build_iteration_results(
                 results, results_df, selected_spec
             )
-            if ia_results_df.empty:
+            if results_df.empty:
                 logging.warning(
                     "IA figure generation skipped: profile '%s' has no runs.",
                     args.profile,
                 )
             else:
-                generate_ia_figure_set(
-                    results=ia_results,
-                    results_df=ia_results_df,
+                generate_figure_set(
+                    results=results,
+                    results_df=results_df,
                     output_dir=None,
                     iteration_output_dir=None,
-                    summary_csv_path=os.path.join(
-                        ia_dir, "processed_summary_with_sd.csv"
-                    ),
+                    summary_csv_path=os.path.join(dir, "processed_summary_with_sd.csv"),
                 )
                 logging.info("Generated IA Figure 1-5 set in output/figures")
 
@@ -873,7 +869,7 @@ def main(argv: list[str] | None = None):
         step_start = time.time()
         save_data_to_csv(results_df, stats_df, output_dir)
         stats_df.to_csv(
-            os.path.join(ia_dir, "statistical_summary_rawfiles.csv"), index=False
+            os.path.join(dir, "statistical_summary_rawfiles.csv"), index=False
         )
 
         summary = build_summary_plot_data(stats_df, results_df)
@@ -892,7 +888,7 @@ def main(argv: list[str] | None = None):
                 }
             ]
         )
-        fit_df.to_csv(os.path.join(ia_dir, "fit_summary.csv"), index=False)
+        fit_df.to_csv(os.path.join(dir, "fit_summary.csv"), index=False)
 
         step_duration = time.time() - step_start
         logging.info("CSV output completed in %.2f seconds", step_duration)

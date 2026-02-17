@@ -1653,7 +1653,14 @@ def plot_hh_linearization_and_diagnostics(
         ha="right",
         va="top",
         fontsize=11,
-        bbox={"facecolor": "white", "alpha": 0.65, "edgecolor": "none", "pad": 2.0},
+        **{
+            "bbox": {
+                "facecolor": "white",
+                "alpha": 0.65,
+                "edgecolor": "none",
+                "pad": 2.0,
+            }
+        },
     )
     ax_c.grid(True, axis="y")
     set_sensible_ticks(ax_c, x=5, y=5)

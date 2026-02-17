@@ -1,6 +1,6 @@
 """Plotting utilities for titration analysis."""
 
-from .ia_figures import generate_ia_figure_set
+from .figures import generate_figure_set
 from .qc_plots import (
     generate_all_qc_plots,
     plot_buffer_region_coverage,
@@ -26,7 +26,7 @@ from .titration_plots import (
 )
 
 __all__ = [
-    "generate_ia_figure_set",
+    "generate_figure_set",
     "plot_titration_curves",
     "plot_titration_overlays_by_nacl",
     "plot_derivative_equivalence_by_nacl",

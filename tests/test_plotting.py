@@ -9,7 +9,7 @@ import pytest
 
 from salty.analysis import build_summary_plot_data, create_results_dataframe
 from salty.plotting import (
-    generate_ia_figure_set,
+    generate_figure_set,
     plot_derivative_equivalence_by_nacl,
     plot_initial_ph_by_concentration,
     plot_initial_ph_scatter,
@@ -62,7 +62,7 @@ def make_dummy_results():
     return [res]
 
 
-def make_ia_results():
+def make_results():
     """Create synthetic multi-condition run payloads for IA figure tests."""
     results = []
     rng = np.random.default_rng(7)
@@ -162,9 +162,9 @@ def test_plot_titration_curves(tmp_path):
     assert os.path.exists(png.replace(".png", ".svg"))
 
 
-def test_synthetic_ia_results_include_1_0_condition():
+def test_synthetic_results_include_1_0_condition():
     """Ensure synthetic IA payloads exercise the 1.0 M NaCl condition."""
-    results_df = create_results_dataframe(make_ia_results())
+    results_df = create_results_dataframe(make_results())
     concs = set(
         pd.to_numeric(results_df["NaCl Concentration (M)"], errors="coerce")
         .round(1)
@@ -245,14 +245,14 @@ def test_build_summary_plot_data_missing_results_df_columns():
         build_summary_plot_data(stats_df, results_df_missing_nacl)
 
 
-def test_generate_ia_figure_set_outputs_and_captions(tmp_path):
+def test_generate_figure_set_outputs_and_captions(tmp_path):
     """Generate Figure 1-5 files and caption boilerplates for IA output."""
-    results = make_ia_results()
+    results = make_results()
     results_df = create_results_dataframe(results)
 
-    ia_dir = tmp_path / "output" / "ia"
+    dir = tmp_path / "output" / "ia"
     iter_dir = tmp_path / "output" / "iterations" / "all_valid"
-    ia_dir.mkdir(parents=True, exist_ok=True)
+    dir.mkdir(parents=True, exist_ok=True)
 
     summary_df = (
         results_df.groupby("NaCl Concentration (M)", as_index=False)["Apparent pKa"]
@@ -269,13 +269,13 @@ def test_generate_ia_figure_set_outputs_and_captions(tmp_path):
     )
     summary_df["SEM pKa_app"] = summary_df["SD pKa_app"] / np.sqrt(summary_df["n"])
     summary_df["Combined uncertainty"] = summary_df["SEM pKa_app"].fillna(0.04)
-    summary_path = ia_dir / "processed_summary_with_sd.csv"
+    summary_path = dir / "processed_summary_with_sd.csv"
     summary_df.to_csv(summary_path, index=False)
 
-    generate_ia_figure_set(
+    generate_figure_set(
         results=results,
         results_df=results_df,
-        output_dir=str(ia_dir),
+        output_dir=str(dir),
         iteration_output_dir=str(iter_dir),
         summary_csv_path=str(summary_path),
     )
@@ -289,11 +289,11 @@ def test_generate_ia_figure_set_outputs_and_captions(tmp_path):
     }
     for stem, folder in stem_to_folder.items():
         for ext in ("png", "pdf", "svg"):
-            assert (ia_dir / folder / f"{stem}.{ext}").exists()
+            assert (dir / folder / f"{stem}.{ext}").exists()
             assert (iter_dir / folder / f"{stem}.{ext}").exists()
-        assert (ia_dir / "summary" / f"{stem}_caption.txt").exists()
+        assert (dir / "summary" / f"{stem}_caption.txt").exists()
 
-    caption = (ia_dir / "summary" / "titration_overlays_by_nacl_caption.txt").read_text(
+    caption = (dir / "summary" / "titration_overlays_by_nacl_caption.txt").read_text(
         encoding="utf-8"
     )
     assert "V_eq" in caption
@@ -303,7 +303,7 @@ def test_generate_ia_figure_set_outputs_and_captions(tmp_path):
 
 def test_new_plot_axis_labels_match_spec(tmp_path):
     """Validate axis labels for Figures 1-3 against the publication spec."""
-    results = make_ia_results()
+    results = make_results()
     results_df = create_results_dataframe(results)
     out_dir = tmp_path / "plots"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -361,7 +361,7 @@ def test_new_plot_axis_labels_match_spec(tmp_path):
 
 def test_qc_and_summary_paths_and_units_default_routing():
     """Ensure target figures route to output/figures/{qc,summary} with unit labels."""
-    results = make_ia_results()
+    results = make_results()
 
     p_initial = plot_initial_ph_by_concentration(results, output_dir=None)
     p_scatter = plot_initial_ph_scatter(results, output_dir=None)
@@ -385,7 +385,7 @@ def test_qc_and_summary_paths_and_units_default_routing():
 
 def test_temperature_calibration_single_panel_when_missing_calibration():
     """Do not generate a calibration subplot when calibration channels are missing."""
-    results = make_ia_results()
+    results = make_results()
     for row in results:
         if "data" in row and isinstance(row["data"], pd.DataFrame):
             row["data"] = row["data"].drop(
@@ -420,7 +420,7 @@ def test_no_bbox_keyword_in_refactor_targets():
         "salty/plotting/style.py",
         "salty/plotting/qc_plots.py",
         "salty/plotting/summary_plots.py",
-        "salty/plotting/ia_figures.py",
+        "salty/plotting/figures.py",
     ]
     for rel in targets:
         with open(os.path.join(repo_root, rel), "r", encoding="utf-8") as handle:

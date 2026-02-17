@@ -47,7 +47,7 @@ class TestIonicStrengthGeneral:
         """Empty dictionary should return 0.0."""
         assert ionic_strength_general({}) == 0.0
 
-    def test_nacl_via_general_formula(self):
+    def test_nacl_vgeneral_formula(self):
         """Verify NaCl calculation using general formula.
 
         For NaCl: μ = 0.5 * ([Na+] * 1^2 + [Cl-] * 1^2)

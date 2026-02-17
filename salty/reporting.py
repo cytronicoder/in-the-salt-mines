@@ -316,7 +316,7 @@ def _temperature_stats_from_results(results: list[dict]) -> tuple[float, float]:
     return float(np.mean(temps)), float(np.std(temps, ddof=1))
 
 
-def generate_ia_caption_texts(
+def generate_caption_texts(
     results: list[dict],
     results_df: pd.DataFrame,
     figure3_fit: dict | None = None,

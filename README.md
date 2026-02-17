@@ -58,19 +58,28 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 #### Usage
 
-1. **Standard Analysis:** Run the main pipeline to process all raw data, perform the regression analysis, and generate figures.
+1. Run the main pipeline to process all raw data, perform the regression analysis, and generate figures.
 
    ```bash
    python main.py
    ```
 
-2. **Verify Tests:** Ensure all analytical components are functioning correctly.
+2. Run replicate-level error diagnostics for pH at half-equivalence.
+
+   ```bash
+   python -m salty.error_diagnosis \
+     --input path/to/replicates.csv \
+     --outdir outputs/error_diagnosis \
+     --pka-lit 4.76
+   ```
+
+3. Ensure all analytical components are functioning correctly.
 
    ```bash
    pytest
    ```
 
-3. **Output Artifacts:** Check the `output/` directory for results:
+4. Check the `output/` directory for results:
    - `individual_results.csv`: Per-run metrics ($pK_a$, $V_{eq}$, $R^2$, slope).
    - `statistical_summary.csv`: Aggregated results by NaCl concentration.
    - `provenance_map.csv`: file tracing.
