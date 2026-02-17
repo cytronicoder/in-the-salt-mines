@@ -40,7 +40,6 @@ from .style import (
     finalize_figure,
     marker_for_run,
     new_figure,
-    place_fig_legend,
     safe_annotate,
     save_figure_all_formats,
     set_axes_style,
@@ -912,11 +911,12 @@ def plot_statistical_summary(summary: Dict, output_dir: str | None = None) -> st
     line_proxy = Line2D([], [], color=line_color, linewidth=1.8)
     ci_proxy = Patch(facecolor=ci_color, edgecolor="black", linewidth=0.6, alpha=0.45)
 
-    place_fig_legend(
+    figure_legend(
         fig,
         [data_proxy, line_proxy, ci_proxy],
         ["Mean ± propagated u (k=1)", "Linear fit", "95% CI (mean)"],
-        where="bottom",
+        loc="lower center",
+        bbox_to_anchor=(0.5, -0.075),
         ncol=3,
     )
 
