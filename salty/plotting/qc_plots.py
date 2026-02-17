@@ -97,7 +97,7 @@ def _marker_for_nacl(nacl: float) -> str:
     Returns:
         str: Matplotlib marker code chosen for grayscale-safe discrimination.
     """
-    mapping = {0.0: "o", 0.2: "s", 0.4: "^", 0.6: "D", 0.8: "X"}
+    mapping = {0.0: "o", 0.2: "s", 0.4: "^", 0.6: "D", 0.8: "X", 1.0: "P"}
     return mapping.get(float(np.round(nacl, 1)), "o")
 
 
@@ -110,7 +110,8 @@ def _set_nacl_axis(ax: plt.Axes) -> None:
     Returns:
         None: Modify ``ax`` in place.
     """
-    ax.set_xlim(-0.1, 0.9)
+    x_pad = 0.1
+    ax.set_xlim(min(NACL_LEVELS) - x_pad, max(NACL_LEVELS) + x_pad)
     ax.set_xticks(NACL_LEVELS)
     ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
 
@@ -528,7 +529,7 @@ def plot_hh_slope_diagnostics(
         fig,
         line_handles + marker_handles,
         [h.get_label() for h in line_handles + marker_handles],
-        ncol=4,
+        ncol=5,
         y=0.06,
     )
 
@@ -625,7 +626,7 @@ def plot_pka_precision(results_df: pd.DataFrame, output_dir: str | None = None) 
         )
         for n in NACL_LEVELS
     ]
-    _legend_below(fig, handles, [h.get_label() for h in handles], ncol=3, y=0.15)
+    _legend_below(fig, handles, [h.get_label() for h in handles], ncol=3, y=0.05)
 
     out_path = _save_qc_figure(
         fig,
@@ -922,7 +923,7 @@ def plot_residuals_analysis(results: List[Dict], output_dir: str | None = None) 
             label="Zero residual reference",
         )
     )
-    _legend_below(fig, handles, [h.get_label() for h in handles], ncol=3, y=0.06)
+    _legend_below(fig, handles, [h.get_label() for h in handles], ncol=4, y=0.06)
 
     out_path = _save_qc_figure(
         fig,
@@ -1179,17 +1180,6 @@ def plot_temperature_and_calibration_qc(
         ax_cal.set_ylabel(MATH_LABELS["calibration_ph"])
         ax_cal.set_title("Calibration check", fontsize=FONT_SIZES["title"], pad=8)
         ax_cal.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
-    else:
-        ax_temp.text(
-            0.98,
-            0.96,
-            "Calibration readings not recorded",
-            transform=ax_temp.transAxes,
-            ha="right",
-            va="top",
-            fontsize=FONT_SIZES["annotation"],
-            color="0.35",
-        )
 
     legend_handles = [
         Patch(facecolor="0.94", edgecolor="none", label="Tolerance band (±1.0 °C)"),

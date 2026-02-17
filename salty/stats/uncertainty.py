@@ -20,7 +20,7 @@ TEMP_TOLERANCE_C: float = 1.0
 ACID_CONCENTRATION_M: float = 0.10
 BASE_CONCENTRATION_M: float = 0.10
 SAMPLE_VOLUME_CM3: float = 25.00
-NACL_CONCENTRATIONS_M: list[float] = [0.00, 0.20, 0.40, 0.60, 0.80]
+NACL_CONCENTRATIONS_M: list[float] = [0.00, 0.20, 0.40, 0.60, 0.80, 1.00]
 _EQUIPMENT_UNCERTAINTIES: Dict[str, Tuple[float, str]] = {
     "25.0 cm3 pipette": (0.06, "abs"),
     "50.0 cm3 burette": (0.10, "abs"),

@@ -20,7 +20,7 @@ from salty.plotting import (
     plot_titration_curves,
     plot_titration_overlays_by_nacl,
 )
-from salty.plotting.style import MATH_LABELS
+from salty.plotting.style import MATH_LABELS, NACL_LEVELS
 from salty.schema import ResultColumns
 
 
@@ -66,7 +66,7 @@ def make_ia_results():
     """Create synthetic multi-condition run payloads for IA figure tests."""
     results = []
     rng = np.random.default_rng(7)
-    for nacl in (0.0, 0.2, 0.4, 0.6, 0.8):
+    for nacl in NACL_LEVELS:
         for run_id in (1, 2):
             vol = np.array([0, 2, 4, 6, 8, 10, 11, 12, 13, 14, 16, 18, 20], dtype=float)
             baseline = 2.85 + 0.04 * nacl + 0.02 * run_id
@@ -160,6 +160,18 @@ def test_plot_titration_curves(tmp_path):
     assert os.path.exists(png)
     assert os.path.exists(png.replace(".png", ".pdf"))
     assert os.path.exists(png.replace(".png", ".svg"))
+
+
+def test_synthetic_ia_results_include_1_0_condition():
+    """Ensure synthetic IA payloads exercise the 1.0 M NaCl condition."""
+    results_df = create_results_dataframe(make_ia_results())
+    concs = set(
+        pd.to_numeric(results_df["NaCl Concentration (M)"], errors="coerce")
+        .round(1)
+        .dropna()
+        .to_list()
+    )
+    assert 1.0 in concs
 
 
 def test_plot_statistical_summary(tmp_path):

@@ -105,13 +105,14 @@ ALPHAS = {
     "sd_band": 0.08,
 }
 
-NACL_LEVELS = (0.0, 0.2, 0.4, 0.6, 0.8)
+NACL_LEVELS = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 NACL_COLOR_MAP = {
     0.0: "#1f77b4",
     0.2: "#1b9e77",
     0.4: "#2ca02c",
     0.6: "#ff7f0e",
     0.8: "#9467bd",
+    1.0: "#8c564b",
 }
 RUN_MARKERS = ("o", "s", "^", "D", "v", "P", "X")
 
@@ -453,7 +454,8 @@ def set_axis_labels(ax: Axes, x: str | None = None, y: str | None = None) -> Non
 
 def set_naCl_axis(ax: Axes) -> None:
     """Apply standardized NaCl x-axis label and canonical tick locations."""
-    ax.set_xlim(-0.05, 0.85)
+    x_pad = 0.05
+    ax.set_xlim(min(NACL_LEVELS) - x_pad, max(NACL_LEVELS) + x_pad)
     ax.set_xticks(NACL_LEVELS)
     ax.xaxis.set_major_formatter(FormatStrFormatter("%.1f"))
     ax.set_xlabel(

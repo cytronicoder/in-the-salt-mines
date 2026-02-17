@@ -42,7 +42,7 @@ from salty.plotting.style import (
 )
 from salty.reporting import add_formatted_reporting_columns
 
-EXACT_IV_LEVELS: tuple[float, ...] = (0.0, 0.2, 0.4, 0.6, 0.8)
+EXACT_IV_LEVELS: tuple[float, ...] = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
 IV_TOL = 1e-9
 
 

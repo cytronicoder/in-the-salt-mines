@@ -663,16 +663,28 @@ def plot_titration_overlays_by_nacl(
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
+    n_levels = len(NACL_LEVELS)
+    ncols = 3
+    nrows = max(1, (n_levels + ncols - 1) // ncols)
+    base_w, base_h = fig_size("panel_2x3")
+    row_height = base_h / 2.0
     fig, axes = new_figure(
-        2, 3, figsize=fig_size("panel_2x3"), sharex=True, sharey=True
+        nrows,
+        ncols,
+        figsize=(base_w, row_height * nrows),
+        sharex=True,
+        sharey=True,
     )
-    axes_flat = axes.flatten()
+    axes_flat = np.atleast_1d(axes).flatten()
+    data_axes = axes_flat[:n_levels]
+    for ax in axes_flat[n_levels:]:
+        ax.set_visible(False)
 
     all_vol: List[float] = []
     all_ph: List[float] = []
 
     for idx, nacl in enumerate(NACL_LEVELS):
-        ax = axes_flat[idx]
+        ax = data_axes[idx]
         add_panel_label(ax, panel_tag(idx))
         color = color_for_nacl(nacl)
 
@@ -800,13 +812,12 @@ def plot_titration_overlays_by_nacl(
         ax.grid(True, axis="y")
         set_sensible_ticks(ax, x=5, y=5)
 
-        if idx in (0, 3):
+        col = idx % ncols
+        row = idx // ncols
+        if col == 0:
             set_axis_labels(ax, y=MATH_LABELS["ph"])
-        if idx >= 3:
+        if row == nrows - 1:
             set_axis_labels(ax, x=MATH_LABELS["x_volume"])
-
-    legend_ax = axes_flat[5]
-    legend_ax.set_visible(False)
     legend_handles = [
         Line2D(
             [],
@@ -860,12 +871,12 @@ def plot_titration_overlays_by_nacl(
     if all_vol:
         xmin, xmax = float(np.min(all_vol)), float(np.max(all_vol))
         span = max(xmax - xmin, 1e-6)
-        for ax in axes_flat[:5]:
+        for ax in data_axes:
             ax.set_xlim(xmin - 0.02 * span, xmax + 0.02 * span)
     if all_ph:
         ymin, ymax = float(np.min(all_ph)), float(np.max(all_ph))
         span = max(ymax - ymin, 1e-6)
-        for ax in axes_flat[:5]:
+        for ax in data_axes:
             ax.set_ylim(ymin - 0.04 * span, ymax + 0.06 * span)
 
     if output_dir:
@@ -898,16 +909,28 @@ def plot_derivative_equivalence_by_nacl(
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
+    n_levels = len(NACL_LEVELS)
+    ncols = 3
+    nrows = max(1, (n_levels + ncols - 1) // ncols)
+    base_w, base_h = fig_size("panel_2x3")
+    row_height = base_h / 2.0
     fig, axes = new_figure(
-        2, 3, figsize=fig_size("panel_2x3"), sharex=True, sharey=True
+        nrows,
+        ncols,
+        figsize=(base_w, row_height * nrows),
+        sharex=True,
+        sharey=True,
     )
-    axes_flat = axes.flatten()
+    axes_flat = np.atleast_1d(axes).flatten()
+    data_axes = axes_flat[:n_levels]
+    for ax in axes_flat[n_levels:]:
+        ax.set_visible(False)
 
     all_mid: List[float] = []
     all_deriv: List[float] = []
 
     for idx, nacl in enumerate(NACL_LEVELS):
-        ax = axes_flat[idx]
+        ax = data_axes[idx]
         add_panel_label(ax, panel_tag(idx))
         color = color_for_nacl(nacl)
 
@@ -1057,13 +1080,12 @@ def plot_derivative_equivalence_by_nacl(
         ax.set_title(fmt_nacl(nacl), pad=10, fontsize=FONT_SIZES["title"])
         ax.grid(True, axis="y")
         set_sensible_ticks(ax, x=5, y=5)
-        if idx in (0, 3):
+        col = idx % ncols
+        row = idx // ncols
+        if col == 0:
             set_axis_labels(ax, y=MATH_LABELS["y_derivative"])
-        if idx >= 3:
+        if row == nrows - 1:
             set_axis_labels(ax, x=MATH_LABELS["x_volume"])
-
-    legend_ax = axes_flat[5]
-    legend_ax.set_visible(False)
     legend_handles = [
         Line2D(
             [],
@@ -1119,12 +1141,12 @@ def plot_derivative_equivalence_by_nacl(
         ncol=3,
     )
 
-    for ax in axes_flat[:5]:
+    for ax in data_axes:
         ax.set_xlim(10.0, 30.0)
     if all_deriv:
         ymin, ymax = float(np.min(all_deriv)), float(np.max(all_deriv))
         span = max(ymax - ymin, 1e-6)
-        for ax in axes_flat[:5]:
+        for ax in data_axes:
             ax.set_ylim(ymin - 0.08 * span, ymax + 0.10 * span)
 
     if output_dir:

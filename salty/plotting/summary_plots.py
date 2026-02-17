@@ -7,7 +7,7 @@ the IA conclusion section.
 from __future__ import annotations
 
 import os
-from typing import Dict, List
+from typing import Callable, Dict, List
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -15,7 +15,12 @@ import pandas as pd
 from matplotlib.gridspec import GridSpec
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import FormatStrFormatter, MaxNLocator, MultipleLocator
+from matplotlib.ticker import (
+    AutoMinorLocator,
+    FormatStrFormatter,
+    MaxNLocator,
+    MultipleLocator,
+)
 from scipy.stats import t as student_t
 
 from ..schema import ResultColumns
@@ -46,6 +51,20 @@ from .style import (
 )
 from .titration_plots import save_figure_bundle, setup_plot_style
 
+CONDITION_AXIS_LABELS = {
+    "x_nacl": r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
+    "y_initial_ph": r"Initial pH ($\mathit{pH}_{0}$)",
+    "y_temperature_c": r"Temperature / $^\circ\mathrm{C}$",
+}
+REFERENCE_VALUES = {
+    "initial_ph_expected": 2.88,
+    "temperature_target_c": 26.0,
+}
+TOLERANCE_BANDS = {
+    "temperature_c": (25.0, 27.0),
+}
+_RAW_MATH_TOKENS = ("\\mathit", "\\mathrm")
+
 
 def _initial_ph_by_nacl(results: List[Dict]) -> dict[float, list[float]]:
     """Collect initial pH values per NaCl concentration."""
@@ -65,6 +84,310 @@ def _initial_ph_by_nacl(results: List[Dict]) -> dict[float, list[float]]:
     return grouped
 
 
+def _temperature_by_nacl(results: List[Dict]) -> dict[float, list[float]]:
+    """Collect all per-run temperature readings grouped by NaCl concentration."""
+    grouped: dict[float, list[float]] = {}
+    for res in results:
+        nacl = float(res.get("nacl_conc", np.nan))
+        if not np.isfinite(nacl):
+            continue
+        raw_df = res.get("data", pd.DataFrame())
+        if (
+            not isinstance(raw_df, pd.DataFrame)
+            or "Temperature (°C)" not in raw_df.columns
+        ):
+            continue
+        vals = pd.to_numeric(raw_df["Temperature (°C)"], errors="coerce").to_numpy(
+            dtype=float
+        )
+        vals = vals[np.isfinite(vals)]
+        if len(vals) == 0:
+            continue
+        grouped.setdefault(float(np.round(nacl, 1)), []).extend(vals.tolist())
+    return grouped
+
+
+def _text_outside_math_segments(label: str) -> tuple[str, bool]:
+    """Return text outside ``$...$`` and whether math delimiters are unbalanced."""
+    outside: list[str] = []
+    in_math = False
+    for char in label:
+        if char == "$":
+            in_math = not in_math
+            continue
+        if not in_math:
+            outside.append(char)
+    return "".join(outside), in_math
+
+
+def _assert_axis_labels_are_valid(ax, figure_name: str) -> None:
+    """Fail fast when axis labels contain raw math tokens outside mathtext."""
+    labels = {
+        "x-axis": ax.get_xlabel() or "",
+        "y-axis": ax.get_ylabel() or "",
+    }
+    for axis_name, label in labels.items():
+        outside_text, unbalanced = _text_outside_math_segments(label)
+        if unbalanced:
+            raise ValueError(
+                f"{figure_name}: {axis_name} label has unbalanced '$' delimiters: "
+                f"{label!r}"
+            )
+        bad_tokens = [tok for tok in _RAW_MATH_TOKENS if tok in outside_text]
+        if bad_tokens:
+            raise ValueError(
+                f"{figure_name}: {axis_name} label contains raw LaTeX token(s) "
+                f"outside mathtext delimiters {bad_tokens}: {label!r}"
+            )
+
+
+def _assert_reference_line_present(
+    ax,
+    *,
+    figure_name: str,
+    reference_value: float,
+    reference_label: str | None = None,
+) -> None:
+    """Require that a reference line artist exists on the axis."""
+    for line in ax.lines:
+        if reference_label and line.get_label() != reference_label:
+            continue
+        y_data = np.asarray(line.get_ydata(), dtype=float)
+        if y_data.size == 0 or not np.all(np.isfinite(y_data)):
+            continue
+        if np.allclose(y_data, reference_value, atol=1e-9, rtol=0.0):
+            return
+    suffix = f" with label {reference_label!r}" if reference_label else ""
+    raise ValueError(
+        f"{figure_name}: missing reference line at y={reference_value}{suffix}."
+    )
+
+
+def _validate_condition_plot(
+    ax,
+    *,
+    figure_name: str,
+    references: list[tuple[float, str]],
+) -> None:
+    """Run required post-draw correctness checks."""
+    _assert_axis_labels_are_valid(ax, figure_name)
+    for reference_value, reference_label in references:
+        _assert_reference_line_present(
+            ax,
+            figure_name=figure_name,
+            reference_value=float(reference_value),
+            reference_label=reference_label,
+        )
+
+
+def _save_summary_figure(
+    fig: plt.Figure,
+    *,
+    output_dir: str | None,
+    file_stem: str,
+    legend_height: float = 0.10,
+) -> str:
+    """Finalize and save one summary figure while preserving existing layout."""
+    if output_dir:
+        out_base = os.path.join(output_dir, file_stem)
+    else:
+        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
+    return str(
+        finalize_figure(
+            fig,
+            savepath=out_base,
+            legend_height=legend_height,
+            tight=True,
+            pad_inches=0.12,
+        )
+    )
+
+
+def _plot_by_condition(
+    *,
+    concentrations: list[float],
+    values: list[list[float]],
+    figure_name: str,
+    title: str,
+    ylabel: str,
+    figsize: tuple[float, float],
+    scatter_seed: int,
+    scatter_scale: float,
+    scatter_size: float,
+    scatter_alpha: float,
+    scatter_linewidth: float,
+    scatter_facecolor: str,
+    scatter_edgecolor: str,
+    scatter_label: str,
+    box_facecolor: str,
+    box_width: float,
+    marker_fn: Callable[[int], str] | None,
+    scatter_legend_marker: str,
+    mean_label: str = "Condition mean",
+    mean_marker: str = "D",
+    mean_size: float = 62.0,
+    mean_facecolor: str = "black",
+    mean_edgecolor: str = "white",
+    mean_linewidth: float = 0.6,
+    max_points_per_condition: int | None = None,
+    tolerance_band: tuple[float, float, str] | None = None,
+    tolerance_band_color: str = "0.93",
+    reference_line: tuple[float, str] | None = None,
+    reference_color: str = "0.2",
+    reference_linewidth: float = 1.5,
+    annotation_text: str | None = None,
+    legend_ncol: int = 3,
+    legend_order: tuple[str, ...] = ("scatter", "mean", "reference", "band"),
+    y_pad: float = 0.05,
+) -> tuple[plt.Figure, plt.Axes]:
+    """Draw one condition-wise box/strip figure with consistent styling and checks."""
+    fig, ax = plt.subplots(figsize=figsize, constrained_layout=False)
+    rng = np.random.default_rng(scatter_seed)
+
+    legend_handles: dict[str, object] = {}
+    refs_to_validate: list[tuple[float, str]] = []
+
+    if tolerance_band is not None:
+        band_low, band_high, band_label = tolerance_band
+        ax.axhspan(band_low, band_high, color=tolerance_band_color, zorder=0)
+        legend_handles["band"] = Patch(
+            facecolor=tolerance_band_color,
+            edgecolor="none",
+            label=band_label,
+        )
+    else:
+        band_low = np.nan
+        band_high = np.nan
+
+    if reference_line is not None:
+        ref_value, ref_label = reference_line
+        reference_artist = ax.axhline(
+            float(ref_value),
+            linestyle="--",
+            color=reference_color,
+            linewidth=reference_linewidth,
+            label=ref_label,
+            zorder=1.8,
+        )
+        legend_handles["reference"] = reference_artist
+        refs_to_validate.append((float(ref_value), ref_label))
+
+    box = ax.boxplot(
+        values,
+        positions=concentrations,
+        widths=box_width,
+        patch_artist=True,
+        showmeans=False,
+        medianprops={"color": "black", "linewidth": 1.2},
+        whiskerprops={"color": "black", "linewidth": 1.0},
+        capprops={"color": "black", "linewidth": 1.0},
+        boxprops={"facecolor": box_facecolor, "edgecolor": "black", "linewidth": 1.0},
+    )
+    for key in ("boxes", "whiskers", "caps", "medians"):
+        for artist in box.get(key, []):
+            artist.set_zorder(2.1)
+
+    for idx, (nacl, vals) in enumerate(zip(concentrations, values)):
+        arr = np.asarray(vals, dtype=float)
+        if max_points_per_condition is not None and len(arr) > max_points_per_condition:
+            sample_idx = rng.choice(
+                len(arr), size=int(max_points_per_condition), replace=False
+            )
+            arr = arr[sample_idx]
+        jitter = rng.normal(0.0, scatter_scale, size=len(arr))
+        marker = marker_fn(idx) if marker_fn is not None else scatter_legend_marker
+        ax.scatter(
+            nacl + jitter,
+            arr,
+            s=scatter_size,
+            alpha=scatter_alpha,
+            marker=marker,
+            facecolor=scatter_facecolor,
+            edgecolor=scatter_edgecolor,
+            linewidth=scatter_linewidth,
+            zorder=3,
+        )
+
+    means = [float(np.mean(v)) for v in values]
+    mean_artist = ax.scatter(
+        concentrations,
+        means,
+        s=mean_size,
+        marker=mean_marker,
+        facecolor=mean_facecolor,
+        edgecolor=mean_edgecolor,
+        linewidth=mean_linewidth,
+        zorder=4,
+        label=mean_label,
+    )
+    legend_handles["mean"] = mean_artist
+
+    legend_handles["scatter"] = Line2D(
+        [],
+        [],
+        marker=scatter_legend_marker,
+        linestyle="none",
+        markerfacecolor=scatter_facecolor,
+        markeredgecolor=scatter_edgecolor,
+        markersize=6,
+        label=scatter_label,
+    )
+
+    set_naCl_axis(ax)
+    set_axes_style(
+        ax,
+        xlabel=CONDITION_AXIS_LABELS["x_nacl"],
+        ylabel=ylabel,
+        xticks=NACL_LEVELS,
+        xfmt="%.1f",
+    )
+    ax.set_title(title, fontsize=FONT_SIZES["title"], pad=8)
+    ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
+
+    if annotation_text:
+        safe_annotate(
+            ax,
+            annotation_text,
+            xy=(0.98, 0.04),
+            xytext=(0, 0),
+            textcoords="axes fraction",
+            ha="right",
+            va="bottom",
+        )
+
+    all_vals = np.asarray([item for row in values for item in row], dtype=float)
+    if len(all_vals):
+        y_candidates = [float(np.min(all_vals)), float(np.max(all_vals))]
+        if np.isfinite(band_low) and np.isfinite(band_high):
+            y_candidates.extend([float(band_low), float(band_high)])
+        if reference_line is not None:
+            y_candidates.append(float(reference_line[0]))
+        y_min = float(min(y_candidates))
+        y_max = float(max(y_candidates))
+        pad = float(y_pad)
+        if y_max - y_min < 1e-9:
+            pad = max(pad, 0.1)
+        ax.set_ylim(y_min - pad, y_max + pad)
+
+    handles = [legend_handles[k] for k in legend_order if k in legend_handles]
+    figure_legend(
+        fig,
+        handles,
+        [h.get_label() for h in handles],
+        loc="upper center",
+        ncol=legend_ncol,
+        bbox_to_anchor=(0.5, 0.95),
+        frameon=False,
+    )
+
+    _validate_condition_plot(
+        ax,
+        figure_name=figure_name,
+        references=refs_to_validate,
+    )
+    return fig, ax
+
+
 def plot_initial_ph_by_nacl(
     results: List[Dict],
     output_dir: str | None = None,
@@ -76,126 +399,49 @@ def plot_initial_ph_by_nacl(
     if not grouped:
         return ""
 
-    concentrations = [c for c in (0.0, 0.2, 0.4, 0.6, 0.8) if c in grouped]
+    concentrations = [c for c in NACL_LEVELS if c in grouped]
     values = [grouped[c] for c in concentrations]
-    means = [float(np.mean(v)) for v in values]
-    rng = np.random.default_rng(11)
-
-    fig, ax = plt.subplots(figsize=(8.5, 4.8), constrained_layout=False)
-    ax.boxplot(
-        values,
-        positions=concentrations,
-        widths=0.10,
-        patch_artist=True,
-        showmeans=False,
-        medianprops={"color": "black", "linewidth": 1.2},
-        whiskerprops={"color": "black", "linewidth": 1.0},
-        capprops={"color": "black", "linewidth": 1.0},
-        boxprops={"facecolor": "0.90", "edgecolor": "black", "linewidth": 1.0},
-    )
-
-    for index, (nacl, vals) in enumerate(zip(concentrations, values)):
-        jitter = rng.normal(0.0, 0.008, size=len(vals))
-        ax.scatter(
-            nacl + jitter,
-            vals,
-            s=34,
-            alpha=0.72,
-            marker=marker_for_run(index),
-            facecolor="white",
-            edgecolor="black",
-            linewidth=0.8,
-            zorder=3,
-        )
-
-    ax.scatter(
-        concentrations,
-        means,
-        s=62,
-        marker="D",
-        facecolor="black",
-        edgecolor="white",
-        linewidth=0.6,
-        zorder=4,
-        label="Condition mean",
-    )
-
-    expected = 2.88
-    ax.axhline(
-        expected,
-        linestyle="--",
-        color="0.2",
-        linewidth=1.2,
-        label="Expected initial pH (reference)",
-    )
-
-    set_naCl_axis(ax)
-    set_axes_style(
-        ax,
-        xlabel=r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
-        ylabel=r"Initial\ pH\ (\mathrm{pH}_0)",
-        xticks=(0.0, 0.2, 0.4, 0.6, 0.8),
-        xfmt="%.1f",
-    )
-    ax.set_title("Initial pH vs [NaCl]", fontsize=FONT_SIZES["title"], pad=8)
-    ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
-
-    all_vals = np.asarray([item for row in values for item in row], dtype=float)
-    if len(all_vals):
-        ax.set_ylim(float(np.min(all_vals) - 0.05), float(np.max(all_vals) + 0.05))
-
-    handles = [
-        Line2D(
-            [],
-            [],
-            marker="o",
-            linestyle="none",
-            markerfacecolor="white",
-            markeredgecolor="black",
-            markersize=6,
-            label="Individual runs",
+    expected_initial_ph = REFERENCE_VALUES["initial_ph_expected"]
+    fig, _ = _plot_by_condition(
+        concentrations=concentrations,
+        values=values,
+        figure_name="Initial pH vs [NaCl]",
+        title="Initial pH vs [NaCl]",
+        ylabel=CONDITION_AXIS_LABELS["y_initial_ph"],
+        figsize=(8.5, 4.8),
+        scatter_seed=11,
+        scatter_scale=0.008,
+        scatter_size=34,
+        scatter_alpha=0.72,
+        scatter_linewidth=0.8,
+        scatter_facecolor="white",
+        scatter_edgecolor="black",
+        scatter_label="Individual runs",
+        box_facecolor="0.90",
+        box_width=0.10,
+        marker_fn=marker_for_run,
+        scatter_legend_marker="o",
+        mean_label="Condition mean",
+        mean_marker="D",
+        mean_size=62,
+        mean_facecolor="black",
+        mean_edgecolor="white",
+        mean_linewidth=0.6,
+        reference_line=(
+            expected_initial_ph,
+            "Expected initial pH (reference)",
         ),
-        Line2D(
-            [],
-            [],
-            marker="D",
-            linestyle="none",
-            markerfacecolor="black",
-            markeredgecolor="white",
-            markersize=7,
-            label="Condition mean",
-        ),
-        Line2D(
-            [],
-            [],
-            linestyle="--",
-            color="0.2",
-            linewidth=1.2,
-            label="Expected initial pH (reference)",
-        ),
-    ]
-    figure_legend(
+        reference_color="0.2",
+        reference_linewidth=1.5,
+        legend_ncol=3,
+        legend_order=("scatter", "mean", "reference"),
+        y_pad=0.05,
+    )
+    out_path = _save_summary_figure(
         fig,
-        handles,
-        [h.get_label() for h in handles],
-        loc="upper center",
-        ncol=3,
-        bbox_to_anchor=(0.5, 0.95),
-        frameon=False,
-    )
-
-    if output_dir:
-        out_base = os.path.join(output_dir, file_stem)
-    else:
-        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
-    out_path = str(
-        finalize_figure(
-            fig,
-            savepath=out_base,
-            legend_height=0.10,
-            tight=True,
-            pad_inches=0.12,
-        )
+        output_dir=output_dir,
+        file_stem=file_stem,
+        legend_height=0.10,
     )
     plt.close(fig)
     return out_path
@@ -212,7 +458,7 @@ def plot_initial_ph_scatter_with_errorbar(
     if not grouped:
         return ""
 
-    concentrations = [c for c in (0.0, 0.2, 0.4, 0.6, 0.8) if c in grouped]
+    concentrations = [c for c in NACL_LEVELS if c in grouped]
     means = np.asarray([np.mean(grouped[c]) for c in concentrations], dtype=float)
     sds = np.asarray(
         [
@@ -240,31 +486,47 @@ def plot_initial_ph_scatter_with_errorbar(
     )
 
     overall = float(np.mean(means))
-    ax.axhline(
+    overall_line = ax.axhline(
         overall,
         linestyle="--",
         color="0.35",
         linewidth=1.1,
         label="Overall mean (reference)",
+        zorder=1.8,
     )
-    ax.axhline(
-        2.88,
-        linestyle=":",
+    expected_initial_ph = REFERENCE_VALUES["initial_ph_expected"]
+    expected_line = ax.axhline(
+        expected_initial_ph,
+        linestyle="--",
         color="0.2",
-        linewidth=1.2,
+        linewidth=1.5,
         label="Expected initial pH (reference)",
+        zorder=1.9,
     )
 
     set_naCl_axis(ax)
     set_axes_style(
         ax,
-        xlabel=r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
-        ylabel=r"Initial\ pH\ (\mathrm{pH}_0)",
-        xticks=(0.0, 0.2, 0.4, 0.6, 0.8),
+        xlabel=CONDITION_AXIS_LABELS["x_nacl"],
+        ylabel=CONDITION_AXIS_LABELS["y_initial_ph"],
+        xticks=NACL_LEVELS,
         xfmt="%.1f",
     )
     ax.set_title("Initial pH (mean ± SD)", fontsize=FONT_SIZES["title"], pad=8)
     ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
+
+    y_candidates = np.concatenate(
+        [
+            means - sds,
+            means + sds,
+            np.asarray([overall, expected_initial_ph], dtype=float),
+        ]
+    )
+    y_candidates = y_candidates[np.isfinite(y_candidates)]
+    if len(y_candidates):
+        ax.set_ylim(
+            float(np.min(y_candidates) - 0.05), float(np.max(y_candidates) + 0.05)
+        )
 
     handles = [
         Line2D(
@@ -277,22 +539,8 @@ def plot_initial_ph_scatter_with_errorbar(
             markersize=7,
             label="Mean ± 1 SD",
         ),
-        Line2D(
-            [],
-            [],
-            linestyle="--",
-            color="0.35",
-            linewidth=1.1,
-            label="Overall mean (reference)",
-        ),
-        Line2D(
-            [],
-            [],
-            linestyle=":",
-            color="0.2",
-            linewidth=1.2,
-            label="Expected initial pH (reference)",
-        ),
+        overall_line,
+        expected_line,
     ]
     figure_legend(
         fig,
@@ -304,18 +552,20 @@ def plot_initial_ph_scatter_with_errorbar(
         frameon=False,
     )
 
-    if output_dir:
-        out_base = os.path.join(output_dir, file_stem)
-    else:
-        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
-    out_path = str(
-        finalize_figure(
-            fig,
-            savepath=out_base,
-            legend_height=0.10,
-            tight=True,
-            pad_inches=0.12,
-        )
+    _validate_condition_plot(
+        ax,
+        figure_name="Initial pH (mean ± SD)",
+        references=[
+            (overall, "Overall mean (reference)"),
+            (expected_initial_ph, "Expected initial pH (reference)"),
+        ],
+    )
+
+    out_path = _save_summary_figure(
+        fig,
+        output_dir=output_dir,
+        file_stem=file_stem,
+        legend_height=0.10,
     )
     plt.close(fig)
     return out_path
@@ -328,127 +578,57 @@ def plot_temperature_control_by_nacl(
 ) -> str:
     """Plot temperature control as boxplots plus random subsample scatter."""
     setup_plot_style()
-    grouped: dict[float, list[float]] = {}
-    for res in results:
-        nacl = float(res.get("nacl_conc", np.nan))
-        if not np.isfinite(nacl):
-            continue
-        raw_df = res.get("data", pd.DataFrame())
-        if (
-            not isinstance(raw_df, pd.DataFrame)
-            or "Temperature (°C)" not in raw_df.columns
-        ):
-            continue
-        vals = pd.to_numeric(raw_df["Temperature (°C)"], errors="coerce").to_numpy(
-            dtype=float
-        )
-        vals = vals[np.isfinite(vals)]
-        if len(vals) == 0:
-            continue
-        grouped.setdefault(float(np.round(nacl, 1)), []).extend(vals.tolist())
-
+    grouped = _temperature_by_nacl(results)
     if not grouped:
         return ""
 
-    concentrations = [c for c in (0.0, 0.2, 0.4, 0.6, 0.8) if c in grouped]
+    concentrations = [c for c in NACL_LEVELS if c in grouped]
     values = [grouped[c] for c in concentrations]
-    rng = np.random.default_rng(29)
-
-    fig, ax = plt.subplots(figsize=fig_size("wide"), constrained_layout=False)
-    ax.axhspan(25.0, 27.0, color="0.93", zorder=0)
-    ax.axhline(26.0, color="0.15", linestyle="--", linewidth=1.2)
-
-    ax.boxplot(
-        values,
-        positions=concentrations,
-        widths=0.10,
-        patch_artist=True,
-        showmeans=True,
-        meanprops={
-            "marker": "D",
-            "markerfacecolor": "white",
-            "markeredgecolor": "black",
-            "markersize": 6,
-        },
-        medianprops={"color": "black", "linewidth": 1.2},
-        whiskerprops={"color": "black", "linewidth": 1.0},
-        capprops={"color": "black", "linewidth": 1.0},
-        boxprops={"facecolor": "0.87", "edgecolor": "black", "linewidth": 1.0},
-    )
-
-    for nacl, vals in zip(concentrations, values):
-        arr = np.asarray(vals, dtype=float)
-        if len(arr) > 200:
-            idx = rng.choice(len(arr), size=200, replace=False)
-            arr = arr[idx]
-        jitter = rng.normal(0.0, 0.008, size=len(arr))
-        ax.scatter(
-            nacl + jitter,
-            arr,
-            s=14,
-            alpha=0.22,
-            marker="o",
-            facecolor="white",
-            edgecolor="black",
-            linewidth=0.5,
-            zorder=2,
-        )
-
-    set_naCl_axis(ax)
-    set_axes_style(
-        ax,
-        xlabel=r"$[\mathrm{NaCl}]\ /\ \mathrm{mol\,dm^{-3}}$",
-        ylabel=r"Temperature\ /\ ^\circ\mathrm{C}",
-        xticks=(0.0, 0.2, 0.4, 0.6, 0.8),
-        xfmt="%.1f",
-    )
-    ax.set_title("Temperature control by [NaCl]", fontsize=FONT_SIZES["title"], pad=8)
-    safe_annotate(
-        ax,
-        "Random subsample for visibility",
-        xy=(0.98, 0.04),
-        xytext=(0, 0),
-        textcoords="axes fraction",
-        ha="right",
-        va="bottom",
-    )
-    ax.grid(True, axis="y", alpha=0.14, linestyle=":", linewidth=0.8)
-
-    handles = [
-        Patch(facecolor="0.93", edgecolor="none", label="Tolerance band (±1.0 °C)"),
-        Line2D(
-            [], [], linestyle="--", color="0.15", linewidth=1.2, label="Target 26.0 °C"
+    band_low, band_high = TOLERANCE_BANDS["temperature_c"]
+    fig, _ = _plot_by_condition(
+        concentrations=concentrations,
+        values=values,
+        figure_name="Temperature control by [NaCl]",
+        title="Temperature control by [NaCl]",
+        ylabel=CONDITION_AXIS_LABELS["y_temperature_c"],
+        figsize=fig_size("wide"),
+        scatter_seed=29,
+        scatter_scale=0.008,
+        scatter_size=14,
+        scatter_alpha=0.22,
+        scatter_linewidth=0.5,
+        scatter_facecolor="white",
+        scatter_edgecolor="black",
+        scatter_label="Random subsample for visibility",
+        box_facecolor="0.87",
+        box_width=0.10,
+        marker_fn=None,
+        scatter_legend_marker="o",
+        mean_label="Condition mean",
+        mean_marker="D",
+        mean_size=52,
+        mean_facecolor="white",
+        mean_edgecolor="black",
+        mean_linewidth=0.9,
+        max_points_per_condition=200,
+        tolerance_band=(band_low, band_high, "Tolerance band (±1.0 °C)"),
+        tolerance_band_color="0.93",
+        reference_line=(
+            REFERENCE_VALUES["temperature_target_c"],
+            "Target 26.0 °C",
         ),
-        Line2D(
-            [],
-            [],
-            marker="o",
-            linestyle="none",
-            markerfacecolor="white",
-            markeredgecolor="black",
-            markersize=5,
-            label="Random subsample for visibility",
-        ),
-    ]
-
-    figure_legend(
+        reference_color="0.15",
+        reference_linewidth=1.2,
+        annotation_text="Random subsample for visibility",
+        legend_ncol=4,
+        legend_order=("band", "reference", "scatter", "mean"),
+        y_pad=0.05,
+    )
+    out_path = _save_summary_figure(
         fig,
-        handles,
-        [h.get_label() for h in handles],
-        loc="upper center",
-        ncol=3,
-        bbox_to_anchor=(0.5, 0.95),
-        frameon=False,
-    )
-
-    if output_dir:
-        out_base = os.path.join(output_dir, file_stem)
-    else:
-        out_base = str(figure_base_path(fig_key=file_stem, kind="summary"))
-    out_path = str(
-        finalize_figure(
-            fig, savepath=out_base, legend_height=0.10, tight=True, pad_inches=0.12
-        )
+        output_dir=output_dir,
+        file_stem=file_stem,
+        legend_height=0.10,
     )
     plt.close(fig)
     return out_path
@@ -531,7 +711,7 @@ def plot_statistical_summary(summary: Dict, output_dir: str | None = None) -> st
 
     x_pad = 0.05
     x_lo = -x_pad
-    x_hi = 0.8 + x_pad
+    x_hi = max(NACL_LEVELS) + x_pad
 
     if np.sum(finite) >= 2 and np.isfinite(m_best) and np.isfinite(b_best):
         xgrid_fit = np.linspace(x_lo, x_hi, 300)
@@ -1386,6 +1566,14 @@ def plot_hh_linearization_and_diagnostics(
     ax_a.set_title("HH linearization with fit lines")
     ax_a.grid(True)
 
+    y_min_a, y_max_a = ax_a.get_ylim()
+    y_span_a = max(float(y_max_a - y_min_a), 1e-9)
+    y_major_step = 0.5 if (y_span_a / 0.5) <= 8 else 1.0
+    ax_a.yaxis.set_major_locator(MultipleLocator(y_major_step))
+    ax_a.yaxis.set_major_formatter(FormatStrFormatter("%.1f"))
+    ax_a.yaxis.set_minor_locator(AutoMinorLocator(2))
+    ax_a.tick_params(axis="y", which="minor", labelleft=False)
+
     ax_b.axhline(0.0, color="0.25", linestyle="--", linewidth=1.1)
     set_axis_labels(ax_b, MATH_LABELS["hh_x"], MATH_LABELS["residual_ph"])
     set_ticks(ax_b, xstep=0.5, ystep=0.05)
@@ -1457,11 +1645,15 @@ def plot_hh_linearization_and_diagnostics(
     set_axis_labels(ax_c, MATH_LABELS["x_nacl"], "HH slope m")
     set_ticks(ax_c, xstep=0.2, ystep=0.05)
     ax_c.set_title("Fitted slope m vs [NaCl]")
-    add_info_box(
-        ax_c,
+    ax_c.text(
+        0.98,
+        0.90,
         r"$\mathrm{Error\ bars}:\ 95\%\ \mathrm{CI}$",
-        loc="upper left",
+        transform=ax_c.transAxes,
+        ha="right",
+        va="top",
         fontsize=11,
+        bbox={"facecolor": "white", "alpha": 0.65, "edgecolor": "none", "pad": 2.0},
     )
     ax_c.grid(True, axis="y")
     set_sensible_ticks(ax_c, x=5, y=5)
