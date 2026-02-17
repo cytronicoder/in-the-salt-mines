@@ -86,11 +86,8 @@ def linear_regression(
 
         if HAVE_SCIPY:
             try:
-                # Two-tailed t-test for slope
                 t_stat = m / se_m if se_m > 0 else np.inf
                 p_m = float(2 * (1 - student_t.cdf(abs(t_stat), dof)))
-
-                # 95% Confidence Intervals (half-width)
                 t_crit = float(student_t.ppf(0.975, dof))
                 ci95_m = t_crit * se_m
                 ci95_b = t_crit * se_b

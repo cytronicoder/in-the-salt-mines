@@ -714,8 +714,6 @@ def plot_statistical_summary(summary: Dict, output_dir: str | None = None) -> st
 
     if np.sum(finite) >= 2 and np.isfinite(m_best) and np.isfinite(b_best):
         xgrid_fit = np.linspace(x_lo, x_hi, 300)
-
-        # 95% confidence band for mean predicted y
         mse = fit.get("mse", np.nan)
         xbar = fit.get("xbar", np.nan)
         ssxx = fit.get("ssxx", np.nan)

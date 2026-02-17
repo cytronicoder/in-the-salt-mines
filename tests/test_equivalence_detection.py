@@ -18,7 +18,6 @@ def _make_step_df(volumes: np.ndarray, ph_values: np.ndarray) -> pd.DataFrame:
             "pH_step": np.asarray(ph_values, dtype=float),
         }
     )
-    # Keep derivative construction deterministic for synthetic fixtures.
     df["pH_smooth"] = df["pH_step"]
     return _ensure_derivative(df, use_smooth=True)
 
@@ -30,7 +29,6 @@ def synthetic_edge_spike_curve() -> tuple[pd.DataFrame, float]:
     ph = 3.0 + 0.06 * vol
     ph += 5.4 / (1.0 + np.exp(-(vol - 23.0) / 1.3))
     ph += 0.8 / (1.0 + np.exp(-(vol - 36.0) / 0.9))
-    # End-tail perturbation creates a misleading PCHIP derivative spike.
     ph[-4] += -0.05
     ph[-3] += 0.50
     ph[-2] += -0.05
@@ -53,7 +51,6 @@ def synthetic_two_peak_curve() -> tuple[pd.DataFrame, float]:
     vol = np.linspace(0.0, 40.0, 81)
     ph = 3.0 + 0.05 * vol
     ph += 5.0 / (1.0 + np.exp(-(vol - 19.5) / 1.9))
-    # Narrow secondary feature has high derivative but smaller total pH jump.
     ph += 1.0 / (1.0 + np.exp(-(vol - 30.0) / 0.18))
     ph += 0.03 * np.sin(0.9 * vol) + 0.02 * np.cos(1.7 * vol)
     return _make_step_df(vol, ph), 20.0
